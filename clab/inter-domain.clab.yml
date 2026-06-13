@@ -1,0 +1,101 @@
+# inter-domain-simlab, milestone 1: the deployable core.
+#
+# Five all-FRR autonomous systems plus two host containers, wired as a small
+# inter-AS mesh. One base topology, no per-zone split: the subject here is an
+# inter-AS fabric whose whole point is that everything connects, the opposite
+# of an estate carved into isolated security zones. Scenarios that need more
+# than this core add nodes via overlay files, they do not add zones.
+#
+# Container names follow clab's default: clab-inter-domain-<node>. The
+# gamemaster is the looking glass (./ctl table, ./ctl lg); the attacker AS is
+# the player's foothold (./ctl ssh attacker-as).
+#
+# Addressing (point-to-point /30 on the core, /24 on the host segments):
+#   transit-a eth1 <-> transit-b eth1     10.0.0.0/30   a=.1  b=.2
+#   transit-a eth2 <-> victim-as eth1     10.0.0.4/30   a=.5  victim=.6
+#   transit-b eth2 <-> attacker-as eth1   10.0.0.8/30   b=.9  attacker=.10
+#   transit-a eth3 <-> gamemaster eth1    10.0.0.12/30  a=.13 gm=.14
+#   transit-b eth3 <-> gamemaster eth2    10.0.0.16/30  b=.17 gm=.18
+#   victim-as eth2 <-> web eth1           203.0.113.0/24 victim=.1 web=.10
+#   transit-a eth4 <-> eyeball eth1       192.0.2.0/24   a=.1   eyeball=.10
+
+name: inter-domain
+
+topology:
+
+  defaults:
+    kind: linux
+    # Strip the clab management IP from eth0 so each node sees only its
+    # in-simulation addresses and carries no route off the lab (contained: no
+    # internet egress). docker exec still reaches every node regardless.
+    exec:
+      - sh -c "ip addr flush dev eth0 2>/dev/null || true"
+
+  nodes:
+
+    # ── Backbone and edge ASes (all FRR, one image) ─────────────────────
+    # Router interface IPs come from the bind-mounted frr.conf; the shared
+    # daemons file enables bgpd + zebra + staticd only.
+    transit-a:
+      image: clab-router
+      binds:
+        - ../configs/daemons:/etc/frr/daemons
+        - ../configs/transit-a.conf:/etc/frr/frr.conf
+      labels: { role: transit, asn: "65001" }
+
+    transit-b:
+      image: clab-router
+      binds:
+        - ../configs/daemons:/etc/frr/daemons
+        - ../configs/transit-b.conf:/etc/frr/frr.conf
+      labels: { role: transit, asn: "65002" }
+
+    victim-as:
+      image: clab-router
+      binds:
+        - ../configs/daemons:/etc/frr/daemons
+        - ../configs/victim-as.conf:/etc/frr/frr.conf
+      labels: { role: victim, asn: "65010" }
+
+    attacker-as:
+      image: clab-router
+      binds:
+        - ../configs/daemons:/etc/frr/daemons
+        - ../configs/attacker-as.conf:/etc/frr/frr.conf
+      labels: { role: attacker, asn: "65020" }
+
+    gamemaster:
+      image: clab-router
+      binds:
+        - ../configs/daemons:/etc/frr/daemons
+        - ../configs/gamemaster.conf:/etc/frr/frr.conf
+      labels: { role: collector, asn: "65000" }
+
+    # ── Traffic plane ───────────────────────────────────────────────────
+    # network-multitool ships nginx plus curl/ping/tcpdump. The wait loop
+    # guards against the veth not yet existing when exec runs.
+    web:
+      image: wbitt/network-multitool:latest
+      binds:
+        - ../configs/web/index.html:/usr/share/nginx/html/index.html:ro
+      cap-add: [NET_ADMIN]
+      env: { HTTP_PORT: "80" }
+      exec:
+        - sh -c "n=0; until ip link show eth1 >/dev/null 2>&1; do n=$((n+1)); [ $n -ge 30 ] && break; sleep 1; done; ip addr add 203.0.113.10/24 dev eth1 && ip link set eth1 up"
+        - sh -c "ip route replace default via 203.0.113.1"
+
+    eyeball:
+      image: wbitt/network-multitool:latest
+      cap-add: [NET_ADMIN]
+      exec:
+        - sh -c "n=0; until ip link show eth1 >/dev/null 2>&1; do n=$((n+1)); [ $n -ge 30 ] && break; sleep 1; done; ip addr add 192.0.2.10/24 dev eth1 && ip link set eth1 up"
+        - sh -c "ip route replace default via 192.0.2.1"
+
+  links:
+    - endpoints: [transit-a:eth1, transit-b:eth1]     # 10.0.0.0/30  core peer
+    - endpoints: [transit-a:eth2, victim-as:eth1]     # 10.0.0.4/30  customer
+    - endpoints: [transit-b:eth2, attacker-as:eth1]   # 10.0.0.8/30  customer
+    - endpoints: [transit-a:eth3, gamemaster:eth1]    # 10.0.0.12/30 collector
+    - endpoints: [transit-b:eth3, gamemaster:eth2]    # 10.0.0.16/30 collector
+    - endpoints: [victim-as:eth2, web:eth1]           # 203.0.113.0/24
+    - endpoints: [transit-a:eth4, eyeball:eth1]       # 192.0.2.0/24

@@ -1,0 +1,33 @@
+# FRR daemons file, shared by every router in the lab.
+#
+# This is a pure BGP fabric: bgpd carries the inter-domain routes, zebra
+# programs them into the kernel, staticd serves the connected/loopback routes
+# the `network` statements advertise. OSPF and the rest stay off; there is no
+# intra-AS IGP to model in milestone 1.
+
+bgpd=yes
+ospfd=no
+ospf6d=no
+ripd=no
+ripngd=no
+isisd=no
+pimd=no
+pim6d=no
+ldpd=no
+nhrpd=no
+eigrpd=no
+babeld=no
+sharpd=no
+pbrd=no
+bfdd=no
+fabricd=no
+vrrpd=no
+pathd=no
+zebra=yes
+staticd=yes
+
+# Common option overrides. Each daemon-specific *_options line is honoured
+# when that daemon is yes.
+zebra_options="  -A 127.0.0.1 -s 90000000"
+staticd_options="-A 127.0.0.1"
+bgpd_options="  -A 127.0.0.1"

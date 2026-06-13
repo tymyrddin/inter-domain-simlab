@@ -1,0 +1,19 @@
+# Python environments and caches
+.venv/
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors and IDEs
+.idea/
+*.swp
+
+# containerlab runtime state: one directory per deployed topology, recreated by ./ctl up
+clab/clab-*/
+
+# Bulky raw seed data pulled at setup time. Commit known-good run artefacts
+# (a trimmed MRT plus the JSON timeline) deliberately instead of whole dumps.
+seeds/mrt/*.bz2
+seeds/mrt/*.gz
+seeds/mrt/*.mrt

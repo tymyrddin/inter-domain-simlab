@@ -1,0 +1,36 @@
+# Scenario 1: false-origin via more-specific.
+# op-red-lantern technique: false-origin-prefix-hijack (bench technique 1).
+# Deployable on the milestone-1 core as-is: it adds no nodes and no links.
+name: false-origin-prefix-hijack
+title: Toadstool Takeover
+technique: false-origin-prefix-hijack
+overlay: null                       # runs on the base topology, no overlay
+
+roles:
+  attacker: attacker-as             # AS65020, the player's foothold
+  victim: victim-as                 # AS65010, owns 203.0.113.0/24
+  transit_unfiltered: transit-b     # carries the bogus route without filtering
+  collector: gamemaster             # AS65000, sees the table
+
+target:
+  legitimate_prefix: 203.0.113.0/24
+  legitimate_origin: 65010
+  hijack_prefix: 203.0.113.0/25     # more-specific, wins by longest-prefix match
+  hijack_origin: 65020
+
+expected_effect: >
+  The attacker's 203.0.113.0/25 propagates through transit-b to transit-a and
+  the collector. Routers prefer it over the victim's /24 for any address in
+  203.0.113.0-127 because it is more specific, so eyeball traffic to the web
+  service (203.0.113.10) bends toward attacker-as.
+
+flag_condition:
+  # Milestone-1 scoring is propagation-based: the collector confirms the bogus
+  # announcement reached the table with the attacker's origin.
+  mode: propagation
+  check: >
+    `show ip bgp 203.0.113.0/25 json` on the gamemaster lists a path whose
+    origin AS is 65020.
+  data_plane_enhancement: >
+    eyeball curling http://203.0.113.10/ is served by the attacker rather than
+    the real victim content (origin-as marker flips away from 65010).

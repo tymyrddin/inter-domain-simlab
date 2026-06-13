@@ -1,0 +1,8 @@
+# inter-domain-simlab router sshd config.
+# Minimal: password auth on, root login off, the admin user lands in vtysh.
+PermitRootLogin no
+PasswordAuthentication yes
+ChallengeResponseAuthentication no
+UsePAM no
+PrintMotd no
+Subsystem sftp /usr/lib/ssh/sftp-server
