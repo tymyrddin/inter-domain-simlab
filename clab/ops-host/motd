@@ -1,0 +1,14 @@
+
+  attacker-ops, AS65020 territory. The attacker's workstation.
+
+  You are on the only box you were handed. From here:
+
+    foothold     SSH into the compromised router (attacker-as) and land in its
+                 vtysh. This is where you announce routes. (admin@100.64.0.1)
+    lg           Query the public looking glass for the global table, as the
+                 rest of the world sees it. (glass@100.64.0.20)
+
+  Recon and traffic tools are here too: curl, tcpdump, traceroute, mtr, dig.
+  No god-mode: you reach what you own, nothing else.
+
+  The brief and a reference solution live with the operator, not on this box.

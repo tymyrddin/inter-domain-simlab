@@ -1,0 +1,7 @@
+#!/bin/sh
+# Query the player-facing looking glass: one `show ip bgp` from a single-transit
+# vantage, then it disconnects (the glass user is ForceCommand-locked).
+# Usage: lg [host]   (default 100.64.0.20, the lookingglass collector)
+exec ssh -i /home/player/.ssh/id_ed25519 -o IdentitiesOnly=yes \
+     -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+     glass@"${1:-100.64.0.20}"

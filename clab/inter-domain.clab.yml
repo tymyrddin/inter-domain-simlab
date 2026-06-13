@@ -1,23 +1,32 @@
-# inter-domain-simlab, milestone 1: the deployable core.
+# inter-domain-simlab, milestone 1.5: deployable core plus the player layer.
 #
-# Five all-FRR autonomous systems plus two host containers, wired as a small
-# inter-AS mesh. One base topology, no per-zone split: the subject here is an
-# inter-AS fabric whose whole point is that everything connects, the opposite
-# of an estate carved into isolated security zones. Scenarios that need more
-# than this core add nodes via overlay files, they do not add zones.
+# Five all-FRR autonomous systems plus two traffic hosts (milestone 1), and on
+# top a thin player surface (milestone 1.5): an attacker ops host the player
+# enters, and a player-facing looking glass. One base topology, no per-zone
+# split: the subject is an inter-AS mesh whose whole point is that everything
+# connects. Scenarios that need more than this add nodes via overlay files.
 #
-# Container names follow clab's default: clab-inter-domain-<node>. The
-# gamemaster is the looking glass (./ctl table, ./ctl lg); the attacker AS is
-# the player's foothold (./ctl ssh attacker-as).
+# Two planes of access:
+#   Operator (god-mode): host `docker exec` and `./ctl` reach every node and the
+#     gamemaster's omniscient table. Routers keep their mgmt eth0 flushed and are
+#     driven by docker exec, exactly as in milestone 1.
+#   Player (constrained): enters the ops host over the internal access LAN
+#     (100.64.0.0/24, reachable from the operator host's bridge address, never a
+#     published port), then SSHes in-band to the foothold (attacker-as) and reads
+#     the looking glass. Key-only auth throughout; see ctl for key generation.
 #
-# Addressing (point-to-point /30 on the core, /24 on the host segments):
-#   transit-a eth1 <-> transit-b eth1     10.0.0.0/30   a=.1  b=.2
-#   transit-a eth2 <-> victim-as eth1     10.0.0.4/30   a=.5  victim=.6
-#   transit-b eth2 <-> attacker-as eth1   10.0.0.8/30   b=.9  attacker=.10
-#   transit-a eth3 <-> gamemaster eth1    10.0.0.12/30  a=.13 gm=.14
-#   transit-b eth3 <-> gamemaster eth2    10.0.0.16/30  b=.17 gm=.18
+# Addressing:
+#   transit-a eth1 <-> transit-b eth1     10.0.0.0/30    a=.1  b=.2
+#   transit-a eth2 <-> victim-as eth1     10.0.0.4/30    a=.5  victim=.6
+#   transit-b eth2 <-> attacker-as eth1   10.0.0.8/30    b=.9  attacker=.10
+#   transit-a eth3 <-> gamemaster eth1    10.0.0.12/30   a=.13 gm=.14
+#   transit-b eth3 <-> gamemaster eth2    10.0.0.16/30   b=.17 gm=.18
+#   transit-a eth5 <-> lookingglass eth2  10.0.0.20/30   a=.21 lg=.22
 #   victim-as eth2 <-> web eth1           203.0.113.0/24 victim=.1 web=.10
 #   transit-a eth4 <-> eyeball eth1       192.0.2.0/24   a=.1   eyeball=.10
+#   access LAN (idsl_access bridge)       100.64.0.0/24  attacker-as=.1
+#                                                        ops-host=.10 lg=.20
+#                                                        operator host=.254
 
 name: inter-domain
 
@@ -25,17 +34,22 @@ topology:
 
   defaults:
     kind: linux
-    # Strip the clab management IP from eth0 so each node sees only its
-    # in-simulation addresses and carries no route off the lab (contained: no
-    # internet egress). docker exec still reaches every node regardless.
+    # Strip the clab management IP from eth0 so each node carries no route off
+    # the lab (contained: no internet egress). docker exec still reaches every
+    # node. ops-host has no eth0 (network-mode: none), so the flush is a no-op
+    # there and the error is swallowed.
     exec:
       - sh -c "ip addr flush dev eth0 2>/dev/null || true"
 
   nodes:
 
+    # ── Access LAN ──────────────────────────────────────────────────────
+    # A host Linux bridge (created by ./ctl up, which also gives the operator
+    # host 100.64.0.254 on it). It carries no NAT and no default, so it adds
+    # reachability without adding egress.
+    idsl_access: { kind: bridge }
+
     # ── Backbone and edge ASes (all FRR, one image) ─────────────────────
-    # Router interface IPs come from the bind-mounted frr.conf; the shared
-    # daemons file enables bgpd + zebra + staticd only.
     transit-a:
       image: clab-router
       binds:
@@ -57,11 +71,15 @@ topology:
         - ../configs/victim-as.conf:/etc/frr/frr.conf
       labels: { role: victim, asn: "65010" }
 
+    # The foothold. admin's authorized_keys (the lab access key) is bind-mounted
+    # here and nowhere else among the transits, so the player can SSH in only to
+    # the AS they own. Key-only: no working password lives in the image.
     attacker-as:
       image: clab-router
       binds:
         - ../configs/daemons:/etc/frr/daemons
         - ../configs/attacker-as.conf:/etc/frr/frr.conf
+        - ../access/authorized_keys:/home/admin/.ssh/authorized_keys:ro
       labels: { role: attacker, asn: "65020" }
 
     gamemaster:
@@ -71,9 +89,33 @@ topology:
         - ../configs/gamemaster.conf:/etc/frr/frr.conf
       labels: { role: collector, asn: "65000" }
 
+    # Player-facing looking glass. Single-transit vantage, read-only. Only the
+    # glass user's authorized_keys is bound (and glass is ForceCommand-locked to
+    # one `show ip bgp`), so a player can read its table and nothing more.
+    lookingglass:
+      image: clab-router
+      binds:
+        - ../configs/daemons:/etc/frr/daemons
+        - ../configs/lookingglass.conf:/etc/frr/frr.conf
+        - ../access/authorized_keys:/home/glass/.ssh/authorized_keys:ro
+      labels: { role: collector, asn: "65005" }
+
+    # ── Player entry ────────────────────────────────────────────────────
+    # network-mode: none means no mgmt eth0 at all; the only interface is eth1
+    # on the access LAN. player_authorized_keys holds the cohort key(s); the lab
+    # access key is staged at /run/lab-key for the foothold/lg pivots.
+    ops-host:
+      image: idsl-ops-host
+      network-mode: none
+      binds:
+        - ../access/player_authorized_keys:/home/player/.ssh/authorized_keys:ro
+        - ../lab-key:/run/lab-key:ro
+      cap-add: [NET_ADMIN, NET_RAW]
+      exec:
+        - sh -c "n=0; until ip link show eth1 >/dev/null 2>&1; do n=$((n+1)); [ $n -ge 30 ] && break; sleep 1; done; ip addr add 100.64.0.10/24 dev eth1 && ip link set eth1 up"
+        - sh -c "ip route replace default via 100.64.0.1"
+
     # ── Traffic plane ───────────────────────────────────────────────────
-    # network-multitool ships nginx plus curl/ping/tcpdump. The wait loop
-    # guards against the veth not yet existing when exec runs.
     web:
       image: wbitt/network-multitool:latest
       binds:
@@ -92,10 +134,15 @@ topology:
         - sh -c "ip route replace default via 192.0.2.1"
 
   links:
-    - endpoints: [transit-a:eth1, transit-b:eth1]     # 10.0.0.0/30  core peer
-    - endpoints: [transit-a:eth2, victim-as:eth1]     # 10.0.0.4/30  customer
-    - endpoints: [transit-b:eth2, attacker-as:eth1]   # 10.0.0.8/30  customer
-    - endpoints: [transit-a:eth3, gamemaster:eth1]    # 10.0.0.12/30 collector
-    - endpoints: [transit-b:eth3, gamemaster:eth2]    # 10.0.0.16/30 collector
-    - endpoints: [victim-as:eth2, web:eth1]           # 203.0.113.0/24
-    - endpoints: [transit-a:eth4, eyeball:eth1]       # 192.0.2.0/24
+    - endpoints: [transit-a:eth1, transit-b:eth1]      # 10.0.0.0/30  core peer
+    - endpoints: [transit-a:eth2, victim-as:eth1]      # 10.0.0.4/30  customer
+    - endpoints: [transit-b:eth2, attacker-as:eth1]    # 10.0.0.8/30  customer
+    - endpoints: [transit-a:eth3, gamemaster:eth1]     # 10.0.0.12/30 collector
+    - endpoints: [transit-b:eth3, gamemaster:eth2]     # 10.0.0.16/30 collector
+    - endpoints: [transit-a:eth5, lookingglass:eth2]   # 10.0.0.20/30 collector
+    - endpoints: [victim-as:eth2, web:eth1]            # 203.0.113.0/24
+    - endpoints: [transit-a:eth4, eyeball:eth1]        # 192.0.2.0/24
+    # access LAN: foothold, player workstation and looking glass share a bridge
+    - endpoints: [attacker-as:eth2,  idsl_access:ia0]  # 100.64.0.1
+    - endpoints: [ops-host:eth1,     idsl_access:ia1]  # 100.64.0.10
+    - endpoints: [lookingglass:eth1, idsl_access:ia2]  # 100.64.0.20

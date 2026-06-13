@@ -1,0 +1,6 @@
+#!/bin/sh
+# Pivot to the compromised foothold router and land in its vtysh.
+# Usage: foothold [host]   (default 100.64.0.1, attacker-as on the access LAN)
+exec ssh -i /home/player/.ssh/id_ed25519 -o IdentitiesOnly=yes \
+     -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+     admin@"${1:-100.64.0.1}"

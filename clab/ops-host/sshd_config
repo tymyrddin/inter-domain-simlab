@@ -1,0 +1,15 @@
+# inter-domain-simlab ops-host sshd config.
+# Key-only player entry. No passwords, no root login. authorized_keys is
+# bind-mounted per deploy (StrictModes off so a root-owned read-only mount is
+# accepted).
+PermitRootLogin no
+PasswordAuthentication no
+PermitEmptyPasswords no
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
+UsePAM no
+StrictModes no
+PrintMotd yes
+Subsystem sftp /usr/lib/ssh/sftp-server

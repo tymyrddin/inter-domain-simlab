@@ -1,8 +1,21 @@
 # inter-domain-simlab router sshd config.
-# Minimal: password auth on, root login off, the admin user lands in vtysh.
+# Key-only: no passwords anywhere, root login off, the admin user lands in vtysh.
+# authorized_keys is bind-mounted per deploy (StrictModes off so a root-owned
+# read-only mount is accepted).
 PermitRootLogin no
-PasswordAuthentication yes
+PasswordAuthentication no
+PermitEmptyPasswords no
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
 ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
 UsePAM no
+StrictModes no
 PrintMotd no
 Subsystem sftp /usr/lib/ssh/sftp-server
+
+# Read-only looking glass: the glass user can only ever run one command, a BGP
+# table dump, no matter what it asks for. This is what the lookingglass node
+# offers players as a stand-in for a public route collector.
+Match User glass
+  ForceCommand vtysh -c "show ip bgp"
