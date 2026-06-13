@@ -74,5 +74,5 @@ is what the attacks exploit.
 
 ## See also
 
-- `docs/design.md` for the full multi-zone design (registry plane, IXP, any later scenarios, and the planned flask gamemaster).
+- `PLAN.md` for the full build plan, multi-zone design, what is reusable from red-lantern-sim, and the open design questions.
 - `scenarios/` for the techniques drawn from Operation Red Lantern.
