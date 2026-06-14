@@ -16,19 +16,36 @@ surface is in `docs/playing.md`.
 ./ctl player        play locally: enter the ops host on a cohort key (auto-made)
 ./ctl playtest      operator check of the player path, using the lab key
 ./ctl cohort-keys   make a participant keypair to hand out
+./ctl seed-fetch [N]  refresh the backbone seed from a live RouteViews dump
 ```
 
 Nodes: transit-a, transit-b, victim-as, attacker-as, gamemaster, lookingglass,
-ops-host, web, eyeball. Containers are named `clab-inter-domain-<node>`.
+seed, ops-host, web, eyeball. Containers are named `clab-inter-domain-<node>`.
 
 ## Deploy and reset
 
-`./ctl up` builds the two images (the FRR router and the ops host), brings up the
-`idsl_access` bridge, and deploys. A bounce is self-contained: `./ctl down` then
-`./ctl up` rebuilds the images (so config changes are picked up), recreates the
-bridge and redeploys. Keys persist across a bounce, so a distributed cohort key
-stays valid. To rotate credentials, remove `lab-key* cohort-key* access/` before
-`up`.
+`./ctl up` builds the three images (the FRR router, the ops host and the GoBGP
+seed), brings up the `idsl_access` bridge, and deploys. A bounce is
+self-contained: `./ctl down` then `./ctl up` rebuilds the images (so config
+changes are picked up), recreates the bridge and redeploys. Keys persist across a
+bounce, so a distributed cohort key stays valid. To rotate credentials, remove
+`lab-key* cohort-key* access/` before `up`.
+
+## The backbone seed (a plausibly large table)
+
+The `seed` node (AS65003) replays a real, filtered route dump so the global table
+carries tens of thousands of routes, not just the lab's own handful. The default
+`./ctl up` uses the committed sample (~10k prefixes) and needs no network. The
+size is a dial:
+
+```bash
+SEED_COUNT=50000 ./ctl up          # inject more (needs a larger dump first)
+./ctl seed-fetch 50000             # download + filter a 50k dump, then redeploy
+```
+
+A larger table needs a fresh fetch (the committed sample only holds ~10k). Detail,
+including what is real and what is abstracted, is in `seeds/mrt/README.md` and
+`PLAN.md` section 15.
 
 ## Observing
 
@@ -43,10 +60,15 @@ To drive the false-origin hijack yourself, the steps are in
 attacker-as`. The operator's part is the god-mode view of what the attack does:
 
 ```bash
-./ctl table                                                     # baseline, then the bogus /25 appears
-docker exec clab-inter-domain-transit-a vtysh -c 'show ip bgp'  # the victim's own upstream prefers the /25
+./ctl table | grep 203.0.113                                    # the /24 and the bogus /25, amid ~10k seed routes
+docker exec clab-inter-domain-transit-a vtysh -c 'show ip bgp 203.0.113.10'  # the upstream prefers the /25
 docker exec -it clab-inter-domain-eyeball traceroute -n 203.0.113.10   # traffic bends to the attacker
 ```
+
+With the seed in place the table is large, so `./ctl table` is best filtered
+(`grep 203.0.113`) rather than read whole. The hijack wins for the same reason it
+did against the empty table: longest-prefix match is indifferent to how much else
+is in the RIB.
 
 ## Issuing cohort keys
 

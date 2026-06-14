@@ -74,26 +74,41 @@ scenario's `attack.md` spells out the sequence it expects.
 ## Confirming
 
 ```bash
-lg          # does the looking glass list your prefix, with your origin?
+lg | grep 203.0.113   # your /25 next to the victim's /24, in a table of real routes
 ```
 
+The looking glass now carries a sizeable real table (the backbone is seeded with
+a live route dump), so filter for your prefix rather than reading the whole thing.
 That is the control-plane proof: your announcement reached the wider table. For
-the data-plane, see the effect from your own side. Redirect the hijacked range to
-a host you control instead of dropping it, then watch the victim's traffic arrive
-on the foothold:
+the data-plane, see the effect from your own side. In the foothold's vtysh, point
+the hijacked range at your ops host instead of discarding it (the `network`
+statement still advertises it, since the route is still in the RIB):
+
+```
+configure terminal
+ ip route 203.0.113.0/25 100.64.0.10
+end
+```
+
+Then, back on the ops host where your tools are, watch the victim's traffic land:
 
 ```bash
 tcpdump -ni any host 203.0.113.10
 ```
 
-You never read the operator's full table or the victim's box. You confirm from the
-looking glass and from what lands on what you hold, which is how it works for real.
+The foothold router has only vtysh, no shell, which is the whole point: a router
+gives you its routing CLI, and your tooling lives on the ops host. So you drive the
+redirect on the router and observe on the box you actually own. You never read the
+operator's full table or the victim's machine. You confirm from the looking glass
+and from what lands on what you hold, which is how it works for real.
 
 ## What this teaches, and what it does not
 
 The control plane is real: the hijack works for the exact reason it works on the
-internet, and you confirm it the way you would against RouteViews or RIS. What the
-lab does not model yet is a hardened target, defences to beat (RPKI, prefix
-filters), the noise of a million-route table, or anyone noticing. Do not read "it
-won instantly and nobody minded" as how it goes against a real network. Closing
-that gap is what the later milestones are for; see `PLAN.md` section 13.
+internet, and you confirm it the way you would against RouteViews or RIS. The
+backbone now carries a seeded table of real routes, so your prefix wins among
+genuine company rather than in an empty RIB, though that table is plausibly large,
+not the full million. What the lab does not model yet is a hardened target,
+defences to beat (RPKI, prefix filters), or anyone noticing. Do not read "it won
+instantly and nobody minded" as how it goes against a real network. Closing that
+gap is what the later milestones are for; see `PLAN.md` section 13.

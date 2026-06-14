@@ -25,3 +25,6 @@ access/
 seeds/mrt/*.bz2
 seeds/mrt/*.gz
 seeds/mrt/*.mrt
+# but do commit the small, representative seed sample (the file the topology
+# binds, so a fresh clone deploys offline). Raw dumps above stay ignored.
+!seeds/mrt/seed.sample.mrt

@@ -16,6 +16,7 @@
 #   player        play locally: enter the ops host with a cohort key (auto-made)
 #   playtest      operator check of the player path, using the lab key
 #   cohort-keys   generate a participant keypair to hand out
+#   seed-fetch    refresh the backbone seed from a live RouteViews dump
 
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")" && pwd)"
@@ -32,6 +33,9 @@ BRIDGE="idsl_access"
 ACCESS_NET="100.64.0.0/24"
 HOST_IP="100.64.0.254/24"
 OPS_HOST_IP="100.64.0.10"
+# Backbone seed scale dial: how many prefixes the seed injects from the dump.
+# The committed sample holds ~10k; larger needs ./ctl seed-fetch (network).
+SEED_COUNT="${SEED_COUNT:-10000}"
 CMD="${1:-help}"
 
 # ---------------------------------------------------------------------------
@@ -72,12 +76,15 @@ case "$CMD" in
     echo "[ctl] Building images ..."
     docker build -q -t clab-router   clab/frr
     docker build -q -t idsl-ops-host clab/ops-host
+    docker build -q -t idsl-seed     clab/seed
     echo "[ctl] Creating access bridge $BRIDGE (sudo) ..."
     sudo ip link add "$BRIDGE" type bridge 2>/dev/null || true
     sudo ip link set "$BRIDGE" up
     sudo ip addr add "$HOST_IP" dev "$BRIDGE" 2>/dev/null || true
-    echo "[ctl] Deploying topology ..."
-    sudo containerlab deploy -t "$TOPO"
+    echo "[ctl] Deploying topology (seed injects $SEED_COUNT prefixes) ..."
+    # SEED_COUNT is read by the topology's ${SEED_COUNT:=10000} substitution;
+    # pass it through sudo. If unset it defaults to 10000 either way.
+    sudo SEED_COUNT="$SEED_COUNT" containerlab deploy -t "$TOPO"
     echo ""
     echo "  Lab is up."
     echo "  Operator looking glass:  ./ctl table        (./ctl lg for JSON)"
@@ -110,6 +117,16 @@ case "$CMD" in
   vtysh)
     NODE="${2:?usage: ./ctl vtysh NODE}"
     exec docker exec -it "clab-${LAB}-${NODE}" vtysh
+    ;;
+
+  seed-fetch)
+    # Refresh the backbone seed from a live RouteViews dump (network needed).
+    # Optional COUNT arg for a larger table; the default deploy uses the
+    # committed ~10k sample and needs no fetch. Apply a new size with:
+    #   ./ctl down && SEED_COUNT=50000 ./ctl up   (after seed-fetch 50000)
+    COUNT="${2:-$SEED_COUNT}"
+    "$REPO/seeds/mrt/fetch.sh" "$COUNT"
+    echo "[ctl] Seed refreshed. Redeploy to use it: ./ctl down && SEED_COUNT=$COUNT ./ctl up"
     ;;
 
   cohort-keys)
@@ -155,11 +172,13 @@ Usage: ./ctl <command>
 
 Operator (god-mode):
   up            generate keys, build images, create access bridge, deploy
+                (SEED_COUNT=N ./ctl up sets the backbone table size)
   down          destroy the topology, remove the access bridge
   table         looking glass: show ip bgp on the gamemaster
   lg            looking glass, structured: show ip bgp json
   ssh NODE      shell on a node       (e.g. ./ctl ssh attacker-as)
   vtysh NODE    vtysh on a router     (e.g. ./ctl vtysh attacker-as)
+  seed-fetch [N]  refresh the backbone seed from a live dump (network needed)
 
 Player surface:
   player        play locally: enter the ops host with a cohort key (auto-made)
@@ -167,7 +186,7 @@ Player surface:
   cohort-keys   generate a participant keypair to hand out (local or via -J)
 
 Nodes: transit-a transit-b victim-as attacker-as gamemaster lookingglass
-       ops-host web eyeball
+       seed ops-host web eyeball
 EOF
     ;;
 

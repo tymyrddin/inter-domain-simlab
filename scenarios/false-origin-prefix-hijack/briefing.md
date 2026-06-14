@@ -1,12 +1,12 @@
 # Toadstool Takeover
 
-You hold a foothold on attacker-as (AS65020), a small customer of transit-b out
-on the frontier. You legitimately announce 198.51.100.0/24, your hosting space,
-and nobody looks at you twice.
+You hold a foothold on attacker-as (AS65020), Bracket Hosting, a small customer of
+Hyphalink (transit-b) out on the frontier. You legitimately announce
+198.51.100.0/24, your hosting space, and nobody looks at you twice.
 
-FungusFiber, the regional registry, runs a customer service behind
-203.0.113.0/24, originated by victim-as (AS65010), a customer of the other
-provider. Neither transit filters what its customers announce.
+victim-as (AS65010) is FDEI, the energy and infrastructure ministry and a
+FungusFiber customer. It runs a public service behind 203.0.113.0/24 and
+originates it. Neither transit filters what its customers announce.
 
 Your task: make traffic for that service come to you instead. You do not need to
 break into anything else. The routing table is the vulnerability.
