@@ -23,6 +23,12 @@ route in the lab does.
 Raw dumps (`*.bz2`, `*.gz`, other `*.mrt`) are gitignored; only the sample is
 committed.
 
+`filter.py` needs the `mrtparse` package to read MRT. It is the one dependency
+here, and it is not declared in a requirements file: `fetch.sh` installs it on
+demand (into the repo's `.venv` if present, otherwise the active Python). Running
+`filter.py` directly wants `pip install mrtparse` first. Nothing at deploy time
+needs it, since the committed sample is pre-built; it is only for a refresh.
+
 ## Scale (the SEED_COUNT dial)
 
 `gobgp mrt inject global <file> <count>` takes the first `count` records.
