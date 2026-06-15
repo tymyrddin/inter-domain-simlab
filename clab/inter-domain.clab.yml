@@ -24,6 +24,9 @@
 #   transit-a eth5 <-> lookingglass eth2  10.0.0.20/30   a=.21 lg=.22
 #   transit-a eth6 <-> seed eth1          10.0.0.24/30   a=.25 seed=.26
 #   transit-b eth4 <-> seed eth2          10.0.0.28/30   b=.29 seed=.30
+#   registry services segment             10.0.0.32/28   registry-ca=.33
+#     (idsl_services bridge)                             registry-rtr=.34
+#                                                        transit-a=.35 transit-b=.36
 #   victim-as eth2 <-> web eth1           203.0.113.0/24 victim=.1 web=.10
 #   transit-a eth4 <-> eyeball eth1       192.0.2.0/24   a=.1   eyeball=.10
 #   access LAN (idsl_access bridge)       100.64.0.0/24  attacker-as=.1
@@ -50,6 +53,11 @@ topology:
     # host 100.64.0.254 on it). It carries no NAT and no default, so it adds
     # reachability without adding egress.
     idsl_access: { kind: bridge }
+
+    # Registry services segment (10.0.0.32/28): the transits reach Routinator's
+    # RTR and Routinator reaches Krill's publication point over this. Internal,
+    # no NAT, no egress; created by ./ctl up alongside idsl_access.
+    idsl_services: { kind: bridge }
 
     # ── Backbone and edge ASes (all FRR, one image) ─────────────────────
     transit-a:
@@ -119,6 +127,31 @@ topology:
         - ../access/authorized_keys:/home/glass/.ssh/authorized_keys:ro
       labels: { role: collector, asn: "65005", func: "collector (public vantage)", lore: OpenHands }
 
+    # ── Registry and governance (FMDA, M3) ──────────────────────────────
+    # The lab's own RPKI trust fabric, self-contained (no internet). registry-ca
+    # (Krill) is the CA plus testbed trust anchor; registry-rtr (Routinator)
+    # validates against it and serves VRPs to the transits over RTR. They share
+    # ../access/registry (mounted /share) for the TAL and Krill's RRDP cert.
+    # ./ctl rpki-init onboards the FMDA CA and ROAs; ./ctl rov on|off applies
+    # origin validation on the transits. None speaks BGP, so none carries an asn.
+    registry-ca:
+      image: idsl-registry-ca
+      env:
+        KRILL_ADMIN_TOKEN: ${KRILL_TOKEN:=changeme-lab-token}
+      binds:
+        - ../access/registry:/share
+      cap-add: [NET_ADMIN]
+      labels: { role: registry, func: "RIR (Krill CA)", lore: FMDA }
+      exec:
+        - sh -c "n=0; until ip link show eth1 >/dev/null 2>&1; do n=$((n+1)); [ $n -ge 30 ] && break; sleep 1; done; ip addr add 10.0.0.33/28 dev eth1 && ip link set eth1 up"
+
+    registry-rtr:
+      image: idsl-registry-rtr
+      binds:
+        - ../access/registry:/share
+      cap-add: [NET_ADMIN]
+      labels: { role: registry, func: "RIR (Routinator/RTR)", lore: FMDA }
+
     # ── Player entry ────────────────────────────────────────────────────
     # network-mode: none means no mgmt eth0 at all; the only interface is eth1
     # on the access LAN. player_authorized_keys holds the cohort key(s); the lab
@@ -164,6 +197,11 @@ topology:
     - endpoints: [transit-a:eth5, lookingglass:eth2]   # 10.0.0.20/30 collector
     - endpoints: [transit-a:eth6, seed:eth1]           # 10.0.0.24/30 seed peer
     - endpoints: [transit-b:eth4, seed:eth2]           # 10.0.0.28/30 seed peer
+    # registry services segment 10.0.0.32/28 (RPKI: RTR + publication fetch)
+    - endpoints: [registry-ca:eth1,  idsl_services:is0]  # 10.0.0.33
+    - endpoints: [registry-rtr:eth1, idsl_services:is1]  # 10.0.0.34
+    - endpoints: [transit-a:eth7,    idsl_services:is2]  # 10.0.0.35
+    - endpoints: [transit-b:eth5,    idsl_services:is3]  # 10.0.0.36
     - endpoints: [victim-as:eth2, web:eth1]            # 203.0.113.0/24
     - endpoints: [transit-a:eth4, eyeball:eth1]        # 192.0.2.0/24
     # access LAN: foothold, player workstation and looking glass share a bridge

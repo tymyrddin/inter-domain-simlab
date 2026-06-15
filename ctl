@@ -36,6 +36,10 @@ OPS_HOST_IP="100.64.0.10"
 # Backbone seed scale dial: how many prefixes the seed injects from the dump.
 # The committed sample holds ~10k; larger needs ./ctl seed-fetch (network).
 SEED_COUNT="${SEED_COUNT:-10000}"
+# Registry/governance (M3): the services bridge and the registry container names.
+SERVICES_BRIDGE="idsl_services"
+REGISTRY_CA="clab-${LAB}-registry-ca"
+REGISTRY_RTR="clab-${LAB}-registry-rtr"
 CMD="${1:-help}"
 
 # ---------------------------------------------------------------------------
@@ -65,6 +69,82 @@ _ssh_lab() {
         -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$@"
 }
 
+# Generate Krill's admin token once (gitignored). The committed image bakes no
+# credential; the token is created here and passed to registry-ca at deploy.
+# access/registry is the dir shared with Routinator for the TAL + RRDP cert.
+_ensure_krill_token() {
+    mkdir -p access access/registry
+    if [ ! -f access/krill-token ]; then
+        openssl rand -hex 24 > access/krill-token
+        echo "[ctl] Generated access/krill-token (gitignored, registry-ca admin)"
+    fi
+    # Clear last deploy's trust material so registry-rtr blocks for the fresh
+    # TAL + RRDP cert that rpki-init publishes, never a stale one.
+    rm -f access/registry/krill.tal access/registry/krill-cert.pem
+}
+
+# Onboard the FMDA CA to the testbed TA and add the baseline ROAs, against the
+# running krilld. Idempotent (init-ca.sh skips a CA that already exists).
+_rpki_init() {
+    local tok; tok="$(cat access/krill-token 2>/dev/null || true)"
+    echo "[ctl] Onboarding FMDA CA + baseline ROAs (registry-ca) ..."
+    docker exec -e KRILL_ADMIN_TOKEN="$tok" "$REGISTRY_CA" /opt/init-ca.sh
+}
+
+# Apply ("") or remove ("no ") the ROV route-map inbound on a transit's eBGP
+# route-bearing neighbours, then soft-refresh so VRPs are re-evaluated. The
+# rpki cache and RM-ROV-IN route-map live in the committed config; this only
+# binds/unbinds them, so ROV is off until ./ctl rov on.
+_rov_apply() {
+    local node="$1" asn="$2" kw="$3"; shift 3
+    {
+        echo "configure terminal"; echo "router bgp $asn"
+        echo "address-family ipv4 unicast"
+        for nb in "$@"; do echo "${kw}neighbor $nb route-map RM-ROV-IN in"; done
+        echo "end"; echo "clear bgp ipv4 unicast * soft in"
+    } | docker exec -i "clab-${LAB}-${node}" vtysh >/dev/null
+}
+
+# After rpki-init, wait for Routinator to serve VRPs, then kick the transits' RTR
+# sessions. FRR does not retry hard if the cache was unreachable when bgpd loaded
+# the rpki config (which it is on a fresh deploy, before Routinator is serving).
+_rpki_link() {
+    echo "[ctl] waiting for Routinator VRPs, then linking the transits' RTR ..."
+    local n
+    for _ in $(seq 1 40); do
+        n=$(docker exec "$REGISTRY_RTR" sh -c 'curl -s http://localhost:8323/metrics 2>/dev/null | grep "routinator_vrps_final " | grep -v "^#" | awk "{print \$2}"' 2>/dev/null)
+        [ -n "$n" ] && [ "$n" != "0" ] && break
+        sleep 2
+    done
+    for t in transit-a transit-b; do
+        docker exec "clab-${LAB}-$t" vtysh -c 'rpki reset' >/dev/null 2>&1
+    done
+}
+
+_vrp_count() {
+    docker exec "$REGISTRY_RTR" sh -c \
+        'curl -s http://localhost:8323/metrics | grep "routinator_vrps_final " | grep -v "^#" | awk "{print \$2}"' \
+        2>/dev/null
+}
+
+# Make Routinator re-validate now (its periodic refresh is slow), wait until its
+# VRP count actually changes from $1 (so the RTR update has been computed), let
+# the push reach the transits, then re-pull routes so the new validity is
+# enforced. Robust for both poison (count drops) and restore (count rises).
+_rpki_refresh() {
+    local before="$1" now
+    docker exec "$REGISTRY_RTR" pkill -USR1 routinator 2>/dev/null || true
+    for _ in $(seq 1 40); do
+        sleep 2
+        now="$(_vrp_count)"
+        [ -n "$now" ] && [ "$now" != "$before" ] && break
+    done
+    sleep 3   # let the RTR push reach the transits
+    for t in transit-a transit-b; do
+        docker exec "clab-${LAB}-$t" vtysh -c 'clear bgp ipv4 unicast * soft in' >/dev/null 2>&1
+    done
+}
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -73,23 +153,32 @@ case "$CMD" in
 
   up)
     _ensure_keys
+    _ensure_krill_token
+    KRILL_TOKEN="$(cat access/krill-token)"
     echo "[ctl] Building images ..."
-    docker build -q -t clab-router   clab/frr
-    docker build -q -t idsl-ops-host clab/ops-host
-    docker build -q -t idsl-seed     clab/seed
-    echo "[ctl] Creating access bridge $BRIDGE (sudo) ..."
+    docker build -q -t clab-router        clab/frr
+    docker build -q -t idsl-ops-host      clab/ops-host
+    docker build -q -t idsl-seed          clab/seed
+    docker build -q -t idsl-registry-ca   clab/registry/krill
+    docker build -q -t idsl-registry-rtr  clab/registry/routinator
+    echo "[ctl] Creating bridges $BRIDGE, $SERVICES_BRIDGE (sudo) ..."
     sudo ip link add "$BRIDGE" type bridge 2>/dev/null || true
     sudo ip link set "$BRIDGE" up
     sudo ip addr add "$HOST_IP" dev "$BRIDGE" 2>/dev/null || true
+    sudo ip link add "$SERVICES_BRIDGE" type bridge 2>/dev/null || true
+    sudo ip link set "$SERVICES_BRIDGE" up
     echo "[ctl] Deploying topology (seed injects $SEED_COUNT prefixes) ..."
-    # SEED_COUNT is read by the topology's ${SEED_COUNT:=10000} substitution;
-    # pass it through sudo. If unset it defaults to 10000 either way.
-    sudo SEED_COUNT="$SEED_COUNT" containerlab deploy -t "$TOPO"
+    # SEED_COUNT and KRILL_TOKEN are read by the topology's ${VAR:=default}
+    # substitutions; pass them through sudo.
+    sudo SEED_COUNT="$SEED_COUNT" KRILL_TOKEN="$KRILL_TOKEN" \
+        containerlab deploy -t "$TOPO"
+    _rpki_init || echo "[ctl] rpki-init did not finish; check ./ctl rpki then rerun ./ctl rpki-init"
+    _rpki_link
     echo ""
     echo "  Lab is up."
     echo "  Operator looking glass:  ./ctl table        (./ctl lg for JSON)"
     echo "  Operator foothold:       ./ctl vtysh attacker-as"
-    echo "  Operator playtest:       ./ctl playtest  then  foothold  /  lg"
+    echo "  RPKI status:             ./ctl rpki         (re-onboard: ./ctl rpki-init)"
     echo "  Play locally:            ./ctl player    (generates a cohort key)"
     echo "  Cohort keys for others:  ./ctl cohort-keys"
     echo "  Stop:                    ./ctl down"
@@ -97,8 +186,9 @@ case "$CMD" in
 
   down)
     sudo containerlab destroy --cleanup -t "$TOPO"
-    echo "[ctl] Removing access bridge $BRIDGE (sudo) ..."
+    echo "[ctl] Removing bridges $BRIDGE, $SERVICES_BRIDGE (sudo) ..."
     sudo ip link del "$BRIDGE" 2>/dev/null || true
+    sudo ip link del "$SERVICES_BRIDGE" 2>/dev/null || true
     ;;
 
   table)
@@ -127,6 +217,73 @@ case "$CMD" in
     COUNT="${2:-$SEED_COUNT}"
     "$REPO/seeds/mrt/fetch.sh" "$COUNT"
     echo "[ctl] Seed refreshed. Redeploy to use it: ./ctl down && SEED_COUNT=$COUNT ./ctl up"
+    ;;
+
+  rpki-init)
+    # (Re)onboard the FMDA CA and baseline ROAs. Run automatically by ./ctl up;
+    # rerun by hand if it did not finish first time.
+    _rpki_init
+    ;;
+
+  rov)
+    # Turn origin validation on/off at the transits (off by default). The
+    # route-bearing eBGP neighbours: transit-a {peer, victim, seed},
+    # transit-b {peer, attacker, seed}.
+    case "${2:-}" in
+      on)  KW="" ;;
+      off) KW="no " ;;
+      *)   echo "usage: ./ctl rov on|off"; exit 1 ;;
+    esac
+    _rov_apply transit-a 65001 "$KW" 10.0.0.2 10.0.0.6 10.0.0.26
+    _rov_apply transit-b 65002 "$KW" 10.0.0.1 10.0.0.10 10.0.0.30
+    echo "[ctl] ROV $2 on transit-a and transit-b"
+    ;;
+
+  roa)
+    # ROA poisoning demo: withdraw or restore FDEI's /24 ROA. With it present the
+    # attacker's 203.0.113.0/25 is RPKI-invalid (ROV drops it); withdrawn, the /25
+    # becomes not-found and ROV lets the hijack through again.
+    tok="$(cat access/krill-token 2>/dev/null || true)"
+    KX="docker exec -e KRILL_CLI_TOKEN=$tok -e KRILL_CLI_SERVER=https://localhost:3000/ $REGISTRY_CA krillc"
+    before="$(_vrp_count)"
+    case "${2:-}" in
+      poison)  $KX roas update --ca fmda --remove "203.0.113.0/24-24 => 65010" >/dev/null
+               echo "[ctl] FDEI ROA withdrawn: the /25 hijack now validates (not-found)" ;;
+      restore) $KX roas update --ca fmda --add "203.0.113.0/24-24 => 65010" >/dev/null
+               echo "[ctl] FDEI ROA restored: the /25 hijack is RPKI-invalid again" ;;
+      *) echo "usage: ./ctl roa poison|restore"; exit 1 ;;
+    esac
+    _rpki_refresh "$before"
+    ;;
+
+  rpki-export)
+    # Capture the RPKI trust-signal telemetry heimdallr practises against: the
+    # current VRP set, the FMDA ROA list and change history (the ROA-poisoning
+    # arming signal), and Routinator's validation log. Commit a known-good one
+    # per scenario (PLAN.md sections 8 and 17).
+    OUT="${2:-rpki-export}"
+    mkdir -p "$OUT"
+    tok="$(cat access/krill-token 2>/dev/null || true)"
+    KX="docker exec -e KRILL_CLI_TOKEN=$tok -e KRILL_CLI_SERVER=https://localhost:3000/ $REGISTRY_CA krillc"
+    docker exec "$REGISTRY_RTR" sh -c 'curl -s http://localhost:8323/json' > "$OUT/vrps.json" 2>/dev/null
+    $KX roas list --ca fmda > "$OUT/roas.txt" 2>/dev/null
+    $KX history commands --ca fmda > "$OUT/roa-history.txt" 2>/dev/null
+    docker logs "$REGISTRY_RTR" > "$OUT/routinator.log" 2>&1
+    echo "[ctl] RPKI telemetry exported to $OUT/ (vrps.json, roas.txt, roa-history.txt, routinator.log)"
+    ;;
+
+  rpki)
+    # Operator view of the trust fabric: Routinator's VRP counts and the RTR
+    # session, plus the FMDA CA's ROAs.
+    echo "=== Routinator (registry-rtr) VRPs ==="
+    docker exec "$REGISTRY_RTR" sh -c \
+        'curl -s http://localhost:8323/metrics | grep -E "routinator_vrps_final|routinator_rtr" | grep -v "^#"' \
+        2>/dev/null || echo "  (Routinator not answering yet; TAL loaded? see ./ctl rpki-init)"
+    echo "=== FMDA CA ROAs (registry-ca) ==="
+    tok="$(cat access/krill-token 2>/dev/null || true)"
+    docker exec -e KRILL_CLI_TOKEN="$tok" -e KRILL_CLI_SERVER="https://localhost:3000/" \
+        "$REGISTRY_CA" krillc roas list --ca fmda 2>/dev/null \
+        || echo "  (no ROAs yet; run ./ctl rpki-init)"
     ;;
 
   cohort-keys)
@@ -179,6 +336,11 @@ Operator (god-mode):
   ssh NODE      shell on a node       (e.g. ./ctl ssh attacker-as)
   vtysh NODE    vtysh on a router     (e.g. ./ctl vtysh attacker-as)
   seed-fetch [N]  refresh the backbone seed from a live dump (network needed)
+  rpki          show the trust fabric: Routinator VRPs + FMDA ROAs
+  rpki-init     (re)onboard the FMDA CA and baseline ROAs
+  rov on|off    turn origin validation on/off at the transits (off by default)
+  roa poison|restore  withdraw/restore FDEI's ROA (the ROA-poisoning demo)
+  rpki-export [dir]   dump VRPs + ROAs + Routinator log (telemetry for heimdallr)
 
 Player surface:
   player        play locally: enter the ops host with a cohort key (auto-made)
@@ -186,7 +348,7 @@ Player surface:
   cohort-keys   generate a participant keypair to hand out (local or via -J)
 
 Nodes: transit-a transit-b victim-as attacker-as gamemaster lookingglass
-       seed ops-host web eyeball
+       seed registry-ca registry-rtr ops-host web eyeball
 EOF
     ;;
 

@@ -82,3 +82,26 @@ These use god-mode and belong to the operator, not the player:
 
        ./ctl table                                                   # gamemaster, both tables
        docker exec -it clab-inter-domain-eyeball traceroute -n 203.0.113.10
+
+## Defence: RPKI ROV (operator)
+
+The lab runs its own RPKI (FMDA), so this hijack has a real defence to beat. FDEI
+holds a ROA for 203.0.113.0/24 from AS65010, which makes the attacker's
+203.0.113.0/25 (origin AS65020, longer than the ROA's max length) RPKI-invalid.
+Origin validation is off by default, the permissive baseline above. Turn it on and
+the hijack stops working:
+
+       ./ctl rov on        # transits drop RPKI-invalid routes; the /25 is dropped
+       ./ctl table | grep 203.0.113   # only the legitimate /24 remains
+
+That is the same defence a real provider deploys. The attacker's counter is to
+reach the registry, not just the routers, the route-legitimacy angle. Withdraw or
+weaken FDEI's ROA and the /25 goes not-found, which ROV lets through:
+
+       ./ctl roa poison    # FDEI's ROA withdrawn; the /25 is not-found
+       ./ctl table | grep 203.0.113   # the /25 wins again, under cover
+       ./ctl roa restore   # put the ROA back; the defence holds again
+       ./ctl rov off       # return to the permissive baseline
+
+A ROA change takes a few seconds to propagate (Routinator re-validates, the
+transits re-pull). `./ctl rpki` shows the current VRPs and ROAs.

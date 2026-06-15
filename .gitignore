@@ -28,3 +28,7 @@ seeds/mrt/*.mrt
 # but do commit the small, representative seed sample (the file the topology
 # binds, so a fresh clone deploys offline). Raw dumps above stay ignored.
 !seeds/mrt/seed.sample.mrt
+
+# RPKI telemetry dumps from ./ctl rpki-export (working output). Commit a known-good
+# export per scenario to a deliberate location instead of this default dir.
+rpki-export/
