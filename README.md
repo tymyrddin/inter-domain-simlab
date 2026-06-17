@@ -12,14 +12,17 @@ relationships quietly assume.
 
 ## Status
 
-Milestones 1 and 1.5 are deployed and validated on containerlab 0.75. The all-FRR
+Milestones 1 through 4 are deployed and validated on containerlab 0.75. The all-FRR
 core converges, the passive collector sees both tables while announcing nothing,
 the first scenario (a false-origin /25 hijack) wins by longest-prefix match and
 diverts traffic, and the player surface works end to end: key-only entry to an ops
 host, an in-band pivot to the foothold router, and a single-vantage looking glass
-that confirms the hijack went global. The registry plane (RPKI/IRR), an IXP route
-server, larger scale from a real MRT seed, and the observer's scorer are the next
-milestones. See `PLAN.md`.
+that confirms the hijack went global. On top of that core: a real MRT seed gives a
+backbone-sized table, the registry plane runs RPKI origin validation with live ROV
+and ROA toggles (validated over native RRDP), and the observer's scorer normalises a
+BMP feed into the event timeline. IRR phase two, an IXP route server and the extra
+edge ASes are the remaining build; the flask frontend (M5) stays gated on audience.
+See `PLAN.md`.
 
 ## Dependencies
 
