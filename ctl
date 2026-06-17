@@ -9,7 +9,7 @@
 # Commands:
 #   up            generate keys, build images, create the access bridge, deploy
 #   down          destroy the topology, remove the access bridge
-#   table         looking glass: show ip bgp on the gamemaster (operator)
+#   table         looking glass: show ip bgp on the observer (operator)
 #   lg            looking glass, structured: show ip bgp json (operator)
 #   ssh NODE      shell on a node          (clab-inter-domain-NODE)
 #   vtysh NODE    vtysh on a router node
@@ -28,7 +28,7 @@ export BUILDX_NO_DEFAULT_ATTESTATIONS=1
 
 LAB="inter-domain"
 TOPO="clab/inter-domain.clab.yml"
-GM="clab-${LAB}-gamemaster"
+OBS="clab-${LAB}-observer"
 BRIDGE="idsl_access"
 ACCESS_NET="100.64.0.0/24"
 HOST_IP="100.64.0.254/24"
@@ -81,6 +81,9 @@ _ensure_krill_token() {
     # Clear last deploy's trust material so registry-rtr blocks for the fresh
     # TAL + RRDP cert that rpki-init publishes, never a stale one.
     rm -f access/registry/krill.tal access/registry/krill-cert.pem
+    # bmp-collector output dir; clear last run's stream so a fresh deploy starts clean.
+    mkdir -p access/bmp
+    rm -f access/bmp/events.jsonl access/bmp/raw.bmp
 }
 
 # Onboard the FMDA CA to the testbed TA and add the baseline ROAs, against the
@@ -161,6 +164,7 @@ case "$CMD" in
     docker build -q -t idsl-seed          clab/seed
     docker build -q -t idsl-registry-ca   clab/registry/krill
     docker build -q -t idsl-registry-rtr  clab/registry/routinator
+    docker build -q -t idsl-bmp-collector clab/bmp
     echo "[ctl] Creating bridges $BRIDGE, $SERVICES_BRIDGE (sudo) ..."
     sudo ip link add "$BRIDGE" type bridge 2>/dev/null || true
     sudo ip link set "$BRIDGE" up
@@ -186,17 +190,26 @@ case "$CMD" in
 
   down)
     sudo containerlab destroy --cleanup -t "$TOPO"
+    # `containerlab destroy` only knows the nodes in the current topology, so a
+    # container whose node was renamed or removed lingers as an orphan and blocks
+    # the next deploy ("lab already deployed"). Reap anything still named for this
+    # lab, which catches orphans regardless of how the topology has drifted.
+    orphans="$(docker ps -aq --filter "name=clab-${LAB}-" 2>/dev/null)"
+    if [ -n "$orphans" ]; then
+        echo "[ctl] Reaping orphaned $LAB containers (topology drift) ..."
+        docker rm -f $orphans >/dev/null
+    fi
     echo "[ctl] Removing bridges $BRIDGE, $SERVICES_BRIDGE (sudo) ..."
     sudo ip link del "$BRIDGE" 2>/dev/null || true
     sudo ip link del "$SERVICES_BRIDGE" 2>/dev/null || true
     ;;
 
   table)
-    docker exec "$GM" vtysh -c "show ip bgp"
+    docker exec "$OBS" vtysh -c "show ip bgp"
     ;;
 
   lg)
-    docker exec "$GM" vtysh -c "show ip bgp json"
+    docker exec "$OBS" vtysh -c "show ip bgp json"
     ;;
 
   ssh)
@@ -286,6 +299,19 @@ case "$CMD" in
         || echo "  (no ROAs yet; run ./ctl rpki-init)"
     ;;
 
+  score)
+    # M4 scorer: watch the observer, normalise to events, score the flag, and write
+    # the timeline under scoring/ (the lab's scoring record, not the heimdallr
+    # bundle; PLAN.md sections 8 and 18). Stdlib-only Python.
+    # Source: poll (increment 1, default) or bmp (increment 2, the bmp-collector
+    # feed with exact event timing). Usage: ./ctl score [scenario] [poll|bmp]
+    SCEN="${2:-false-origin-prefix-hijack}"
+    SRC="${3:-poll}"
+    PY="$REPO/.venv/bin/python"; [ -x "$PY" ] || PY="$(command -v python3)"
+    exec "$PY" "$REPO/scorer/scorer.py" --scenario "$SCEN" --source "$SRC"
+    ;;
+
+
   cohort-keys)
     ssh-keygen -t ed25519 -f "$REPO/cohort-key" -N "" -C "idsl-cohort-key" -q
     echo "[ctl] Generated cohort-key / cohort-key.pub (gitignored)"
@@ -331,7 +357,7 @@ Operator (god-mode):
   up            generate keys, build images, create access bridge, deploy
                 (SEED_COUNT=N ./ctl up sets the backbone table size)
   down          destroy the topology, remove the access bridge
-  table         looking glass: show ip bgp on the gamemaster
+  table         looking glass: show ip bgp on the observer
   lg            looking glass, structured: show ip bgp json
   ssh NODE      shell on a node       (e.g. ./ctl ssh attacker-as)
   vtysh NODE    vtysh on a router     (e.g. ./ctl vtysh attacker-as)
@@ -341,14 +367,16 @@ Operator (god-mode):
   rov on|off    turn origin validation on/off at the transits (off by default)
   roa poison|restore  withdraw/restore FDEI's ROA (the ROA-poisoning demo)
   rpki-export [dir]   dump VRPs + ROAs + Routinator log (telemetry for heimdallr)
+  score [scenario] [poll|bmp]  score the flag + write the timeline; poll (M4 inc 1)
+                               or bmp (inc 2, the bmp-collector feed, exact timing)
 
 Player surface:
   player        play locally: enter the ops host with a cohort key (auto-made)
   playtest      operator check of the player path, using the lab key
   cohort-keys   generate a participant keypair to hand out (local or via -J)
 
-Nodes: transit-a transit-b victim-as attacker-as gamemaster lookingglass
-       seed registry-ca registry-rtr ops-host web eyeball
+Nodes: transit-a transit-b victim-as attacker-as observer lookingglass
+       seed registry-ca registry-rtr bmp-collector ops-host web eyeball
 EOF
     ;;
 

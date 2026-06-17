@@ -10,7 +10,7 @@ roles:
   attacker: attacker-as             # AS65020, the player's foothold
   victim: victim-as                 # AS65010, owns 203.0.113.0/24
   transit_unfiltered: transit-b     # carries the bogus route without filtering
-  collector: gamemaster             # AS65000, sees the table
+  collector: observer               # AS65000, sees the table
 
 target:
   legitimate_prefix: 203.0.113.0/24
@@ -29,7 +29,7 @@ flag_condition:
   # announcement reached the table with the attacker's origin.
   mode: propagation
   check: >
-    `show ip bgp 203.0.113.0/25 json` on the gamemaster lists a path whose
+    `show ip bgp 203.0.113.0/25 json` on the observer lists a path whose
     origin AS is 65020.
   data_plane_enhancement: >
     eyeball curling http://203.0.113.10/ is served by the attacker rather than

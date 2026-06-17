@@ -9,7 +9,7 @@ surface is in `docs/playing.md`.
 ```
 ./ctl up            build images, create the access bridge, deploy (sudo)
 ./ctl down          destroy the topology, remove the access bridge (sudo)
-./ctl table         the global table as the gamemaster sees it (show ip bgp)
+./ctl table         the global table as the observer sees it (show ip bgp)
 ./ctl lg            the same, as JSON for tooling
 ./ctl ssh NODE      a shell on a node (e.g. ./ctl ssh attacker-as)
 ./ctl vtysh NODE    vtysh on a router (e.g. ./ctl vtysh attacker-as)
@@ -21,10 +21,12 @@ surface is in `docs/playing.md`.
 ./ctl rov on|off    origin validation at the transits (off by default)
 ./ctl roa poison|restore   withdraw/restore FDEI's ROA (the ROA-poisoning demo)
 ./ctl rpki-export [dir]    dump VRPs + ROAs + Routinator log for heimdallr
+./ctl score [scenario] [poll|bmp]  score the flag, write the timeline (M4); poll
+                                   diffs the table, bmp reads the bmp-collector feed
 ```
 
-Nodes: transit-a, transit-b, victim-as, attacker-as, gamemaster, lookingglass,
-seed, registry-ca, registry-rtr, ops-host, web, eyeball. Containers are named
+Nodes: transit-a, transit-b, victim-as, attacker-as, observer, lookingglass,
+seed, registry-ca, registry-rtr, bmp-collector, ops-host, web, eyeball. Containers are named
 `clab-inter-domain-<node>`.
 
 ## Deploy and reset
@@ -55,7 +57,7 @@ including what is real and what is abstracted, is in `seeds/mrt/README.md` and
 
 ## Observing
 
-`./ctl table` and `./ctl lg` read the gamemaster, the operator's full-visibility
+`./ctl table` and `./ctl lg` read the observer, the operator's full-visibility
 collector. `./ctl ssh` and `./ctl vtysh NODE` reach any node directly. This is the
 omniscient view; the player's `lg` is a deliberately partial one.
 

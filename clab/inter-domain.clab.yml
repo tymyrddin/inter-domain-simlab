@@ -8,7 +8,7 @@
 #
 # Two planes of access:
 #   Operator (god-mode): host `docker exec` and `./ctl` reach every node and the
-#     gamemaster's omniscient table. Routers keep their mgmt eth0 flushed and are
+#     observer's omniscient table. Routers keep their mgmt eth0 flushed and are
 #     driven by docker exec, exactly as in milestone 1.
 #   Player (constrained): enters the ops host over the internal access LAN
 #     (100.64.0.0/24, reachable from the operator host's bridge address, never a
@@ -19,14 +19,15 @@
 #   transit-a eth1 <-> transit-b eth1     10.0.0.0/30    a=.1  b=.2
 #   transit-a eth2 <-> victim-as eth1     10.0.0.4/30    a=.5  victim=.6
 #   transit-b eth2 <-> attacker-as eth1   10.0.0.8/30    b=.9  attacker=.10
-#   transit-a eth3 <-> gamemaster eth1    10.0.0.12/30   a=.13 gm=.14
-#   transit-b eth3 <-> gamemaster eth2    10.0.0.16/30   b=.17 gm=.18
+#   transit-a eth3 <-> observer eth1      10.0.0.12/30   a=.13 ob=.14
+#   transit-b eth3 <-> observer eth2      10.0.0.16/30   b=.17 ob=.18
 #   transit-a eth5 <-> lookingglass eth2  10.0.0.20/30   a=.21 lg=.22
 #   transit-a eth6 <-> seed eth1          10.0.0.24/30   a=.25 seed=.26
 #   transit-b eth4 <-> seed eth2          10.0.0.28/30   b=.29 seed=.30
 #   registry services segment             10.0.0.32/28   registry-ca=.33
 #     (idsl_services bridge)                             registry-rtr=.34
 #                                                        transit-a=.35 transit-b=.36
+#   observer eth3 <-> bmp-collector eth1  10.0.0.48/30   ob=.49 bmp=.50
 #   victim-as eth2 <-> web eth1           203.0.113.0/24 victim=.1 web=.10
 #   transit-a eth4 <-> eyeball eth1       192.0.2.0/24   a=.1   eyeball=.10
 #   access LAN (idsl_access bridge)       100.64.0.0/24  attacker-as=.1
@@ -92,12 +93,25 @@ topology:
         - ../access/authorized_keys:/home/admin/.ssh/authorized_keys:ro
       labels: { role: attacker, asn: "65020", func: customer, lore: "Bracket Hosting" }
 
-    gamemaster:
+    observer:
       image: clab-router
       binds:
         - ../configs/daemons:/etc/frr/daemons
-        - ../configs/gamemaster.conf:/etc/frr/frr.conf
+        - ../configs/observer.conf:/etc/frr/frr.conf
       labels: { role: collector, asn: "65000", func: "collector (operator/scorer)", lore: MycoSec }
+
+    # BMP monitoring station (M4 increment 2). The observer's FRR connects out to
+    # it and streams its RIB (BMP is router-to-station); it parses route-monitoring
+    # into the lab event envelope and writes events.jsonl into the shared /out,
+    # which the scorer reads (./ctl score ... bmp). MycoSec's, like the observer.
+    bmp-collector:
+      image: idsl-bmp-collector
+      binds:
+        - ../access/bmp:/out
+      cap-add: [NET_ADMIN]
+      labels: { role: collector, func: "BMP station", lore: MycoSec }
+      exec:
+        - sh -c "n=0; until ip link show eth1 >/dev/null 2>&1; do n=$((n+1)); [ $n -ge 30 ] && break; sleep 1; done; ip addr add 10.0.0.50/30 dev eth1 && ip link set eth1 up"
 
     # The backbone seed. The one GoBGP node: it replays a filtered, sampled real
     # MRT dump (seeds/mrt/) as genuine eBGP UPDATEs to both transits, so the
@@ -192,8 +206,9 @@ topology:
     - endpoints: [transit-a:eth1, transit-b:eth1]      # 10.0.0.0/30  core peer
     - endpoints: [transit-a:eth2, victim-as:eth1]      # 10.0.0.4/30  customer
     - endpoints: [transit-b:eth2, attacker-as:eth1]    # 10.0.0.8/30  customer
-    - endpoints: [transit-a:eth3, gamemaster:eth1]     # 10.0.0.12/30 collector
-    - endpoints: [transit-b:eth3, gamemaster:eth2]     # 10.0.0.16/30 collector
+    - endpoints: [transit-a:eth3, observer:eth1]       # 10.0.0.12/30 collector
+    - endpoints: [transit-b:eth3, observer:eth2]       # 10.0.0.16/30 collector
+    - endpoints: [observer:eth3, bmp-collector:eth1]   # 10.0.0.48/30 BMP feed
     - endpoints: [transit-a:eth5, lookingglass:eth2]   # 10.0.0.20/30 collector
     - endpoints: [transit-a:eth6, seed:eth1]           # 10.0.0.24/30 seed peer
     - endpoints: [transit-b:eth4, seed:eth2]           # 10.0.0.28/30 seed peer

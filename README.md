@@ -18,7 +18,7 @@ the first scenario (a false-origin /25 hijack) wins by longest-prefix match and
 diverts traffic, and the player surface works end to end: key-only entry to an ops
 host, an in-band pivot to the foothold router, and a single-vantage looking glass
 that confirms the hijack went global. The registry plane (RPKI/IRR), an IXP route
-server, larger scale from a real MRT seed, and the gamemaster scorer are the next
+server, larger scale from a real MRT seed, and the observer's scorer are the next
 milestones. See `PLAN.md`.
 
 ## Dependencies
@@ -56,7 +56,7 @@ egress, so the lab stays contained.
 | transit-b    | 65002 | transit provider, peers with transit-a            |
 | victim-as    | 65010 | customer of transit-a, owns 203.0.113.0/24        |
 | attacker-as  | 65020 | customer of transit-b, the player's foothold      |
-| gamemaster   | 65000 | passive collector, peers both transits (operator) |
+| observer     | 65000 | passive collector, peers both transits (operator) |
 | lookingglass | 65005 | single-vantage public collector (player's `lg`)   |
 | ops-host     | n/a   | the attacker's workstation, the player's entry    |
 | web          | n/a   | victim service behind 203.0.113.0/24              |

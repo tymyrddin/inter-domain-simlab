@@ -30,8 +30,9 @@ staticd=yes
 # when that daemon is yes.
 zebra_options="  -A 127.0.0.1 -s 90000000"
 staticd_options="-A 127.0.0.1"
-# -M rpki loads the RPKI/RTR module (bgpd_rpki.so, already in the FRR 9.1 image)
-# so the routers can hold an RTR session and validate origins. Loading it is
-# harmless where no `rpki` config block exists (the victim, attacker, collectors);
-# only the transits configure a cache and ROV. See PLAN.md section 17.
-bgpd_options="  -A 127.0.0.1 -M rpki"
+# -M rpki loads the RPKI/RTR module (bgpd_rpki.so) so the transits can hold an RTR
+# session and validate origins (section 17). -M bmp loads bgpd_bmp.so so the
+# observer can stream its RIB to the bmp-collector (section 18, M4 increment 2).
+# Both modules are in the FRR 9.1 image and are harmless where no matching config
+# block exists, so the shared daemons file loads them on every router.
+bgpd_options="  -A 127.0.0.1 -M rpki -M bmp"

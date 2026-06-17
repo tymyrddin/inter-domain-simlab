@@ -80,7 +80,7 @@ Or just `./ctl down && ./ctl up` for a clean table.
 
 These use god-mode and belong to the operator, not the player:
 
-       ./ctl table                                                   # gamemaster, both tables
+       ./ctl table                                                   # observer, both tables
        docker exec -it clab-inter-domain-eyeball traceroute -n 203.0.113.10
 
 ## Defence: RPKI ROV (operator)

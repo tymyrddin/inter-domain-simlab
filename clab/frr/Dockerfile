@@ -1,7 +1,7 @@
 FROM quay.io/frrouting/frr:9.1.0
 
 # inter-domain-simlab router image. One image for every AS in the lab: the
-# transits, the victim, the attacker foothold and the gamemaster collector all
+# transits, the victim, the attacker foothold and the observer collector all
 # run the same FRR build. sshd plus an admin user that lands straight in vtysh
 # gives the player an interactive foothold (the free-roam CTF point: SSH into
 # the attacker AS and drive BGP by hand), which a stock image plus

@@ -1,0 +1,39 @@
+# Scenario: ROA poisoning to manufacture cover for a hijack.
+# Not one of the nine op-red-lantern runbook techniques; a trust-fabric-tamper
+# sequence that produces the ROA-poisoning, multi-stage telemetry bundle heimdallr
+# correlates. Deployable on M1-M4 + the registry (M3); no new nodes, no overlay.
+name: roa-poisoning-hijack
+title: Pulling the Roots             # working title; heimdallr fixture, not a runbook technique
+technique: roa-poisoning
+overlay: null
+
+roles:
+  attacker: attacker-as              # AS65020, Bracket Hosting, the routing half
+  victim: victim-as                  # FDEI, AS65010, owns the signed 203.0.113.0/24
+  registry: registry-ca              # FMDA's CA; the ROA is tampered here (the trust half)
+  transit_unfiltered: transit-b
+  collector: observer
+
+target:
+  legitimate_prefix: 203.0.113.0/24
+  legitimate_origin: 65010
+  hijack_prefix: 203.0.113.0/25
+  hijack_origin: 65020
+
+# Multi-stage: ROV is on (Toadstool Takeover already fails). Arm by withdrawing the
+# cover, then hijack. The arming shows in the RPKI/ROA telemetry; the hijack in the
+# scorer timeline. The two correlated files are the fixture.
+stages:
+  - arm: withdraw FDEI's ROA (./ctl roa poison) so 203.0.113.0/24 goes signed -> not-found
+  - hijack: announce 203.0.113.0/25 as AS65020; now not-found, so ROV permits it
+
+flag_condition:
+  mode: propagation
+  rpki_state: notfound               # manufactured: the /25 is invalid under the ROA, not-found after poisoning
+  check: >
+    With ROV on, 203.0.113.0/25 origin 65020 reaches the observer only after FDEI's
+    ROA is withdrawn (./ctl roa poison); before that, ROV drops it as invalid.
+  telemetry_bundle: >
+    The heimdallr fixture is the raw bundle: events.jsonl (the /25 surfacing as a BMP
+    announce after the arming), the validator log and VRP set, and the ROA-change
+    records (the withdrawal). heimdallr correlates the arming with the hijack itself.

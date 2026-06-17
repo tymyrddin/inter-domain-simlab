@@ -70,10 +70,16 @@ done
 mkdir -p /var/krill/data/ta-rsync
 curl -ks "$API/ta/ta.cer" -o /var/krill/data/ta-rsync/ta.cer
 
+# Stage the local root CA cert (not the leaf) into the shared dir so Routinator
+# can trust it for native RRDP via rrdp-root-certs. The root signs the fmda-ca.lab
+# leaf Krill serves; rustls validates leaf -> root. Copied before the TAL, so the
+# rtr's TAL-wait guarantees the cert is present when Routinator starts.
+mkdir -p "$SHARE"
+cp /var/krill/data/ssl/ca-cert.pem "$SHARE/krill-https.pem"
+
 # The TAL is all Routinator needs from the shared dir; it points at the rsync TA
 # URI. Written last, so registry-rtr unblocks only once ta.cer is in place.
-echo "[init-ca] publishing TAL to $SHARE and TA cert to the rsync module"
-mkdir -p "$SHARE"
+echo "[init-ca] publishing TAL + HTTPS cert to $SHARE and TA cert to the rsync module"
 curl -ks "$API/ta/ta.tal" -o "$SHARE/krill.tal"
 
 echo "[init-ca] done; ROAs:"

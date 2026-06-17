@@ -19,9 +19,32 @@ fi
 SSL=/var/krill/data/ssl
 if [ ! -f "$SSL/cert.pem" ]; then
     mkdir -p "$SSL"
+    # Two-level cert chain for native RRDP. rustls/webpki rejects a self-signed
+    # cert that is also the server leaf (curl/OpenSSL tolerate it, rustls does
+    # not), so a local self-signed root CA signs a separate fmda-ca.lab leaf:
+    # Krill serves the leaf, and Routinator trusts the root via rrdp-root-certs
+    # (init-ca.sh stages it). All minted locally with openssl, no public CA and
+    # no internet.
+    #
+    # Root CA: the trust anchor Routinator is told to trust.
     openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
-        -keyout "$SSL/key.pem" -out "$SSL/cert.pem" \
-        -subj "/CN=$FQDN" -addext "subjectAltName=DNS:$FQDN" 2>/dev/null
+        -keyout "$SSL/ca-key.pem" -out "$SSL/ca-cert.pem" \
+        -subj "/CN=FMDA Lab Root CA" \
+        -addext "basicConstraints=critical,CA:TRUE" \
+        -addext "keyUsage=critical,keyCertSign,cRLSign" 2>/dev/null
+    #
+    # Server leaf for fmda-ca.lab, signed by the root: SAN + serverAuth, CA:FALSE.
+    openssl req -newkey rsa:2048 -nodes \
+        -keyout "$SSL/key.pem" -out "$SSL/server.csr" \
+        -subj "/CN=$FQDN" 2>/dev/null
+    cat > "$SSL/leaf.ext" <<EXT
+subjectAltName=DNS:$FQDN
+extendedKeyUsage=serverAuth
+basicConstraints=critical,CA:FALSE
+EXT
+    openssl x509 -req -in "$SSL/server.csr" -days 3650 \
+        -CA "$SSL/ca-cert.pem" -CAkey "$SSL/ca-key.pem" -CAcreateserial \
+        -extfile "$SSL/leaf.ext" -out "$SSL/cert.pem" 2>/dev/null
 fi
 mkdir -p /var/krill/data /var/krill/data/ta-rsync
 

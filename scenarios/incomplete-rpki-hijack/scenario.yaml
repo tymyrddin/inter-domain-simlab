@@ -1,0 +1,43 @@
+# Scenario: incomplete-RPKI opportunistic hijack.
+# op-red-lantern technique: incomplete-rpki-hijack (runbooks technique 4).
+# Deployable on the M1-M4 core as-is: the seed (M2) supplies the not-found target,
+# the registry (M3) supplies ROV. No new nodes, no overlay.
+name: incomplete-rpki-hijack
+title: Unsigned Ground              # working title; align with the op-red-lantern runbooks
+technique: incomplete-rpki-hijack
+overlay: null
+
+roles:
+  attacker: attacker-as             # AS65020, Bracket Hosting, the player's foothold
+  victim: seed                      # the real holder (AS9583) is out in the seeded table; no lab node
+  transit_unfiltered: transit-b     # carries the bogus origin without filtering
+  collector: observer               # AS65000, sees the table
+
+target:
+  # A real prefix from the seeded global table, unsigned in the lab's RPKI (no ROA
+  # covers it), so ROV classes it not-found. Reproducible: it is in the committed
+  # seed sample, injected on every deploy.
+  legitimate_prefix: 1.7.19.0/24
+  legitimate_origin: 9583
+  hijack_prefix: 1.7.19.0/24        # exact-origin hijack: a not-found MOAS, wins by short AS_PATH
+  hijack_origin: 65020
+
+expected_effect: >
+  The attacker originates 1.7.19.0/24 as AS65020. Its two-hop path (65002 65020)
+  beats the real holder's long path through the seed, so the observer's best path
+  flips to the attacker. Because the prefix is RPKI not-found, ROV does not drop
+  it, even with ROV on at the transits.
+
+flag_condition:
+  # Propagation-based, like technique 1, but the point is the RPKI state: the
+  # prefix is unsigned, so ROV permits the hijack.
+  mode: propagation
+  rpki_state: notfound
+  check: >
+    `show ip bgp 1.7.19.0/24 json` on the observer lists the best path with origin
+    AS 65020, while ROV is on at the transits.
+  defence_contrast: >
+    The same hijack of FDEI's signed /24 (technique 1, Toadstool Takeover) is
+    RPKI-invalid and ROV drops it. Here the prefix is unsigned, so ROV's protection
+    does not reach it. The lesson is RPKI's coverage gap: origin validation only
+    protects signed space.
