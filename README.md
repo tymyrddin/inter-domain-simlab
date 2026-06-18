@@ -10,31 +10,6 @@ lab models a utility's IT/OT boundary, this one models the public routing common
 the global table, the relationships between autonomous systems, and the trust those
 relationships quietly assume.
 
-## Status
-
-Milestones 1 through 4 are deployed and validated on containerlab 0.75, and the
-attacker surface is fully player-driven. The all-FRR core converges and a passive
-collector sees both tables while announcing nothing. A real MRT seed gives a
-backbone-sized table; the registry plane runs RPKI origin validation (live ROV and
-ROA state, validated over native RRDP) and an IRR database with bgpq4 prefix filters;
-and the observer's scorer normalises a BMP feed into an event timeline.
-
-Players enter through one bastion, pick an operation from a menu, and are dropped
-onto the box that operation starts from, with the world positioned for it by a
-session manager (`./ctl session`). Seven scenarios play end to end from that
-position. On the routing-mechanics side: false-origin and legitimate-peering
-more-specific hijacks, and a route leak from a separate multi-homed ISP. On the
-routing-governance side: an incomplete-RPKI not-found hijack, a policy-trust-abuse
-preferred-path hijack, and two registry-tamper chains (ROA poisoning and IRR
-legitimacy subversion) the player performs from a registry workstation with planted
-credentials, never an operator knob. Each run produces a raw telemetry bundle, noise
-and all, for the detection lab (heimdallr).
-
-Remaining build: an IXP route server and extra edge ASes and the scenarios that
-still need them (path manipulation, deniable disruption), the data-plane half of the
-interception and degradation effects, and the flask frontend (M5), which stays gated
-on audience. See `PLAN.md`.
-
 ## Dependencies
 
 Linux only; Docker's fixed-IP bridge networking needs a real Linux host, not Docker
@@ -50,8 +25,7 @@ Desktop.
 ## Quickstart
 
 ```bash
-./ctl up         # build images, create the bridges, deploy (prompts sudo)
-./ctl session    # position the world per the scenario the player picks (run alongside)
+./ctl up         # build images, deploy, and start the lab running (prompts sudo)
 ./ctl player     # play locally: enter the bastion (makes a cohort key)
 ./ctl down       # tear it down
 ```
@@ -59,10 +33,9 @@ Desktop.
 You come in at the bastion, pick an operation from a menu, and are dropped onto the
 box it starts from: the foothold router in vtysh for a straight hijack, or the
 registry-attacker workstation (`launder`, `poison`) for a registry-tamper move, from
-where you pivot to the foothold with `foothold` and confirm with `lg`. `./ctl` is the
-operator's god-mode side; a player never uses it.
+where you can pivot to the foothold with `foothold` and confirm with `lg`. 
 
-## Topology (milestones 1 and 1.5)
+## Topology
 
 Private ASNs (64512 to 65534), documentation prefixes (TEST-NET), no internet
 egress, so the lab stays contained.
@@ -81,9 +54,23 @@ egress, so the lab stays contained.
 | web            | n/a   | victim service behind 203.0.113.0/24               |
 | eyeball        | n/a   | client generating traffic toward the victim        |
 
-The two transits peer settlement-free; victim and attacker are each a customer of a
-different transit; filtering and origin validation are deliberately loose, which is
-what the attacks exploit.
+## Status
+
+Deployed and validated on containerlab 0.75. The all-FRR core converges and a passive collector sees both tables while 
+announcing nothing. An MRT seed gives a backbone-sized table; the registry plane runs RPKI origin validation (live ROV 
+and ROA state, validated over native RRDP) and an IRR database with bgpq4 prefix filters; and the observer's scorer 
+normalises a BMP feed into an event timeline.
+
+Players enter through a bastion, pick an operation from a menu, and are dropped straight into the world and onto the 
+box that operation starts from, already in its vtysh or on the workstation to launch the attack. 
+
+Seven scenarios currently play end to end from that position. Feel free to make more.
+
+## Roadmap
+
+Remaining build: an IXP route server and extra edge ASes and the scenarios that
+need them (path manipulation, deniable disruption), the data-plane half of the
+interception and degradation effects.
 
 ## Docs
 

@@ -30,7 +30,7 @@ stages:
 # Player entry (bastion -> Phase-1 box). Two positions: the registry workstation to
 # tamper with Krill (the trust half), then a pivot to the foothold for the announce.
 # Granted compromised-CA position: a planted Krill token stands in for the abstracted
-# credential compromise (PLAN.md sections 13, 20).
+# credential compromise.
 position:
   start_box: ops-host               # the registry-attacker workstation, reaches Krill's API over regpub
   loot: krill-token                 # planted by the session manager; the player uses it themselves

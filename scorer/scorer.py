@@ -6,7 +6,7 @@ polls the observer's `show ip bgp json`, diffs successive snapshots into one fre
 event envelope, annotates each event with its RPKI validation state (computed from
 Routinator's VRPs), evaluates the scenario flag from the structured `target:`
 block, prints a live scoreboard, and writes artefacts/<scenario>/timeline.json for
-heimdallr. See PLAN.md section 18.
+heimdallr. See the design notes.
 """
 import argparse
 import datetime
@@ -244,7 +244,7 @@ def main():
     # The scorer's timeline is the lab's own CTF scoring record (it carries derived
     # fields: more-specific, the flag). It is NOT part of the heimdallr export, so it
     # is written under scoring/, never into the raw artefacts/<scenario>/ bundle.
-    # See PLAN.md sections 8 and 18.
+    # See the design notes.
     out = args.out or os.path.join("scoring", args.scenario, "timeline.json")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     (run_bmp if args.source == "bmp" else run_poll)(args, target, out)

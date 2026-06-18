@@ -31,7 +31,7 @@ stages:
 # Player entry (bastion -> Phase-1 box). Two positions: the registry workstation to
 # launder the object (the legitimacy groundwork), then a pivot to the foothold for the
 # announce. The MAINT-FMDA password is planted loot standing in for the abstracted
-# maintainer-credential compromise (PLAN.md sections 13, 20).
+# maintainer-credential compromise.
 position:
   start_box: ops-host               # the registry-attacker workstation, reaches IRRd :8080 over regpub
   loot: maint-fmda                  # planted by the session manager; the player submits with it

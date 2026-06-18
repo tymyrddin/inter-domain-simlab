@@ -2,7 +2,7 @@
 """Filter and sample a RouteViews/RIS MRT RIB dump into a lab seed dump.
 
 The lab seeds its backbone with a real route dump so the global table is
-plausibly large (PLAN.md sections 3 and 14). This is not table stuffing: GoBGP
+plausibly large. This is not table stuffing: GoBGP
 replays the output of this script as real eBGP UPDATEs (gobgp mrt inject). The
 job here is to turn a raw, full-table TABLE_DUMP_V2 file into a clean, sampled
 one that:
@@ -27,7 +27,7 @@ one that:
 The real AS_PATH is preserved byte-for-byte in value, so origins stay real
 (needed for the later RPKI/IRR zone). The seed-to-first-hop adjacency is
 fictional from the topology's vantage; that is a named, deliberate boundary
-(see seeds/mrt/README.md and PLAN.md section 13).
+(see seeds/mrt/README.md and the design notes).
 """
 
 import argparse

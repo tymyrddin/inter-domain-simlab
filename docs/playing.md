@@ -22,8 +22,8 @@ ssh -i cohort-key player@100.64.0.5                       # local
 ssh -i cohort-key -J jump@<lab-host> player@100.64.0.5    # production
 ```
 
-The operator runs `./ctl session` alongside the lab; that is what positions the
-world for whatever you pick.
+The world is set up for whatever you pick automatically, as part of the running
+lab; there is nothing extra for anyone to start.
 
 ## The menu
 
@@ -114,6 +114,6 @@ validation drops an invalid more-specific until you take the cover away from the
 registry side, and an IRR prefix filter drops an unregistered prefix until you
 register a clean-looking object for it. What the lab hands you rather than making
 you earn is the announcing position itself: initial access, scale and the months a
-long campaign really takes are abstracted (see `PLAN.md` section 13). You never read
+long campaign really takes are abstracted. You never read
 the operator's full table or the victim's machine; you confirm from the looking
 glass and from the flag, which is how it works for real.

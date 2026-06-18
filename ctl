@@ -193,9 +193,16 @@ case "$CMD" in
         containerlab deploy -t "$TOPO"
     _rpki_init || echo "[ctl] rpki-init did not finish; check ./ctl rpki then rerun ./ctl rpki-init"
     _rpki_link
+    # Start the world-positioner in the background, as part of the lab. It watches
+    # the bastion's menu and sets each scenario up (defence posture, planted loot)
+    # when a player picks it. The operator never runs this by hand; it lives and
+    # dies with the lab. (`./ctl session` runs the same loop in the foreground, for
+    # debugging only.)
+    PY="$REPO/.venv/bin/python"; [ -x "$PY" ] || PY="$(command -v python3)"
+    nohup "$PY" "$REPO/scorer/session.py" >access/session.log 2>&1 &
+    echo $! > access/session.pid
     echo ""
-    echo "  Lab is up."
-    echo "  Session manager:         ./ctl session      (run in another terminal, positions the world)"
+    echo "  Lab is up and fully running; players just connect and pick from the menu."
     echo "  Play locally:            ./ctl player       (enter the bastion with a cohort key)"
     echo "  Operator looking glass:  ./ctl table        (./ctl lg for JSON)"
     echo "  RPKI status:             ./ctl rpki         (re-onboard: ./ctl rpki-init)"
@@ -204,6 +211,8 @@ case "$CMD" in
     ;;
 
   down)
+    # Stop the background world-positioner that ./ctl up started.
+    [ -f access/session.pid ] && { kill "$(cat access/session.pid)" 2>/dev/null; rm -f access/session.pid; }
     sudo containerlab destroy --cleanup -t "$TOPO"
     # `containerlab destroy` only knows the nodes in the current topology, so a
     # container whose node was renamed or removed lingers as an orphan and blocks
@@ -289,7 +298,7 @@ case "$CMD" in
     # binds them inbound on the customer neighbours (transit-a {victim 65010},
     # transit-b {attacker 65020}). The legitimacy-subversion attack launders a route
     # object into IRRd, then `irr rebuild` re-derives the filter and the new prefix
-    # passes. See PLAN.md section 19.
+    # passes. See the design notes.
     case "${2:-}" in
       rebuild)
         _irr_build_load transit-a 65010
@@ -319,7 +328,7 @@ case "$CMD" in
     # Capture the IRR-change telemetry heimdallr correlates: the current FMDA route
     # objects (the registry state, including any laundered one) and the journal of
     # changes (the NRTM add/delete record, the arming signal). Commit one known-good
-    # bundle per scenario (PLAN.md sections 8 and 19).
+    # bundle per scenario.
     OUT="${2:-irr-export}"; mkdir -p "$OUT"
     for asn in 65010 65020 65001; do
         echo "# AS$asn"
@@ -338,7 +347,7 @@ case "$CMD" in
     # Capture the RPKI trust-signal telemetry heimdallr practises against: the
     # current VRP set, the FMDA ROA list and change history (the ROA-poisoning
     # arming signal), and Routinator's validation log. Commit a known-good one
-    # per scenario (PLAN.md sections 8 and 17).
+    # per scenario.
     OUT="${2:-rpki-export}"
     mkdir -p "$OUT"
     tok="$(cat access/krill-token 2>/dev/null || true)"
@@ -367,7 +376,7 @@ case "$CMD" in
   score)
     # M4 scorer: watch the observer, normalise to events, score the flag, and write
     # the timeline under scoring/ (the lab's scoring record, not the heimdallr
-    # bundle; PLAN.md sections 8 and 18). Stdlib-only Python.
+    # bundle; the design notes). Stdlib-only Python.
     # Source: poll (increment 1, default) or bmp (increment 2, the bmp-collector
     # feed with exact event timing). Usage: ./ctl score [scenario] [poll|bmp]
     SCEN="${2:-false-origin-prefix-hijack}"
@@ -377,11 +386,12 @@ case "$CMD" in
     ;;
 
   session)
-    # Operator-side session manager: watch the bastion's /control channel and, per
-    # scenario the player selects, set the world posture (rov/irr/roa), plant the
-    # loot on the start box, arm the scorer for the flag, copy the bundle on
-    # completion, and reset to baseline on release. Foreground loop, run alongside
-    # the lab in its own terminal. See scorer/session.py.
+    # The world-positioner, in the foreground, for DEBUGGING ONLY. ./ctl up already
+    # starts this in the background as part of the lab, so the operator never needs
+    # to run it. It watches the bastion's /control channel and, per scenario the
+    # player picks, sets the world posture (rov/irr/localpref/roa), plants the loot,
+    # arms the scorer, copies the bundle on completion, and resets on release. To
+    # debug it live: ./ctl down (which stops the background one) then ./ctl session.
     PY="$REPO/.venv/bin/python"; [ -x "$PY" ] || PY="$(command -v python3)"
     exec "$PY" "$REPO/scorer/session.py"
     ;;
@@ -432,8 +442,8 @@ Operator (deploy, observe, world posture):
   up            generate keys, build images, create bridges, deploy
                 (SEED_COUNT=N ./ctl up sets the backbone table size)
   down          destroy the topology, remove the bridges
-  session       session manager: watch the bastion, set posture/loot per scenario,
-                arm the scorer, copy the bundle on completion (run alongside the lab)
+  session       the world-positioner, foreground, for debugging only (./ctl up
+                already runs it in the background as part of the lab)
   table         looking glass: show ip bgp on the observer
   lg            looking glass, structured: show ip bgp json
   ssh NODE      shell on a node       (e.g. ./ctl ssh attacker-as)

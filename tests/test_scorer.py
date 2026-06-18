@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for the scorer's off-the-lab logic (PLAN.md section 18).
+"""Unit tests for the scorer's off-the-lab logic.
 
 Section 18 promises the validation logic is "unit-tested off the lab". The three
 units it names are the validation states (RFC 6811 origin validation), the

@@ -37,10 +37,6 @@ rpki-export/
 irr-export/
 
 # The scorer's timeline (./ctl score) is the lab's own scoring record, regenerable
-# live and not part of the heimdallr export. The committed bundles in artefacts/
-# are raw telemetry only; the scorer's derived timeline never goes there.
+# live and not part of a heimdallr export. The committed bundles in artefacts/
+# are raw telemetry only.
 scoring/
-
-# Local design and planning docs, kept out of the repo on purpose.
-PLAN.md
-PLAN2.md

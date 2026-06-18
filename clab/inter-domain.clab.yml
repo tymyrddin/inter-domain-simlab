@@ -143,7 +143,7 @@ topology:
     # MRT dump (seeds/mrt/) as genuine eBGP UPDATEs to both transits, so the
     # table is plausibly large. Stands in for "the rest of the default-free
     # zone". Real origins, real AS_PATHs; the seed-to-first-hop adjacency is a
-    # named, deliberate abstraction (PLAN.md section 13). SEED_COUNT is the scale
+    # named, deliberate abstraction. SEED_COUNT is the scale
     # dial; the committed sample makes the default deploy work offline. GoBGP has
     # no zebra, so the exec block assigns eth1/eth2.
     seed:

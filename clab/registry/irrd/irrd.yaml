@@ -1,7 +1,7 @@
 # FMDA's IRR database (IRRd v4). One authoritative source, FMDA, holding the lab's
 # route objects; a local PostgreSQL and Redis back it. Access lists are lab-open
 # because the lab is contained (no internet). bgpq4 on the transits queries the
-# whois listener on TCP 43. See PLAN.md section 19.
+# whois listener on TCP 43. See the design notes.
 irrd:
   piddir: /var/run/irrd
   user: irrd

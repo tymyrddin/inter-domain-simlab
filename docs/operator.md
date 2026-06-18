@@ -13,8 +13,8 @@ surface is in `docs/playing.md`.
 ./ctl lg            the same, as JSON for tooling
 ./ctl ssh NODE      a shell on a node (e.g. ./ctl ssh attacker-as)
 ./ctl vtysh NODE    vtysh on a router (e.g. ./ctl vtysh attacker-as)
-./ctl session       the session manager: positions the world per scenario the player
-                    picks, arms the scorer, assembles the bundle (run alongside the lab)
+./ctl session       the world-positioner, foreground, for debugging only (./ctl up
+                    already runs it in the background as part of the lab)
 ./ctl player        play locally: enter the bastion on a cohort key (auto-made)
 ./ctl playtest      operator check of the player path, using the lab key
 ./ctl cohort-keys   make a participant keypair to hand out
@@ -58,7 +58,7 @@ SEED_COUNT=50000 ./ctl up          # inject more (needs a larger dump first)
 
 A larger table needs a fresh fetch (the committed sample only holds ~10k). Detail,
 including what is real and what is abstracted, is in `seeds/mrt/README.md` and
-`PLAN.md` section 15.
+the design notes.
 
 ## Observing
 
@@ -103,14 +103,14 @@ posture an operator can turn it on:
 The attacker's counter, withdrawing FDEI's ROA so the /25 goes not-found, is the
 `roa-poisoning-hijack` scenario, performed by the player from a compromised CA
 position (a planted token, a real call to Krill's API), not an operator knob. When
-a player picks it at the bastion, `./ctl session` sets ROV on, plants the token,
-and restores the ROA on reset.
+a player picks it at the bastion, the lab sets ROV on, plants the token, and
+restores the ROA on reset.
 
 A ROA change takes a few seconds to propagate (Routinator re-validates, the
 transits re-pull), then re-check with `./ctl table | grep 203.0.113`. Validation
 runs over rsync, not RRDP: Krill's self-signed HTTPS is not usable for
 trust-anchor retrieval, so `registry-ca` serves the repository over rsync (detail
-in PLAN.md section 17). `./ctl rpki-export` dumps the VRP set, the ROA history and
+in the design notes). `./ctl rpki-export` dumps the VRP set, the ROA history and
 Routinator's log for the detection lab (heimdallr).
 
 One caution that applies to every node: never `docker restart` a node or restart
@@ -147,4 +147,4 @@ Provisioning that jump account is host setup, outside `ctl`.
 Private ASNs and TEST-NET prefixes, no internet egress, and nothing bound to a
 public interface. The lab is deliberately vulnerable inside and never reachable
 from outside, and that isolation is the control that keeps the weak in-lab
-credentials safe. See `PLAN.md` sections 9 and 13.
+credentials safe. See the design notes.
