@@ -32,14 +32,16 @@ OBS="clab-${LAB}-observer"
 BRIDGE="idsl_access"
 ACCESS_NET="100.64.0.0/24"
 HOST_IP="100.64.0.254/24"
-OPS_HOST_IP="100.64.0.10"
+BASTION_IP="100.64.0.5"
 # Backbone seed scale dial: how many prefixes the seed injects from the dump.
 # The committed sample holds ~10k; larger needs ./ctl seed-fetch (network).
 SEED_COUNT="${SEED_COUNT:-10000}"
 # Registry/governance (M3): the services bridge and the registry container names.
 SERVICES_BRIDGE="idsl_services"
+REGPUB_BRIDGE="idsl_regpub"
 REGISTRY_CA="clab-${LAB}-registry-ca"
 REGISTRY_RTR="clab-${LAB}-registry-rtr"
+REGISTRY_IRR="clab-${LAB}-registry-irr"
 CMD="${1:-help}"
 
 # ---------------------------------------------------------------------------
@@ -50,17 +52,18 @@ CMD="${1:-help}"
 # files the topology bind-mounts. The committed image carries no credential;
 # these files are created here and gitignored.
 _ensure_keys() {
-    mkdir -p access
+    mkdir -p access access/control access/bundles access/loot
     if [ ! -f lab-key ]; then
         ssh-keygen -t ed25519 -f lab-key -N "" -C "idsl-lab-key" -q
         echo "[ctl] Generated lab-key / lab-key.pub (gitignored, operator + in-lab pivot)"
     fi
-    # admin (foothold) and glass (looking glass) trust the lab access key.
+    # The pivot key. admin (foothold), the workstation (ops-host) and glass (looking
+    # glass) trust it; the bastion holds it and pivots with it. Never in a player's hand.
     cp lab-key.pub access/authorized_keys
-    # The ops-host player trusts the lab key plus any cohort key.
-    cat lab-key.pub > access/player_authorized_keys
+    # The door (bastion) trusts cohort keys, plus the lab key so operator playtest enters.
+    cat lab-key.pub > access/cohort_authorized_keys
     if [ -f cohort-key.pub ]; then
-        cat cohort-key.pub >> access/player_authorized_keys
+        cat cohort-key.pub >> access/cohort_authorized_keys
     fi
 }
 
@@ -94,16 +97,41 @@ _rpki_init() {
     docker exec -e KRILL_ADMIN_TOKEN="$tok" "$REGISTRY_CA" /opt/init-ca.sh
 }
 
-# Apply ("") or remove ("no ") the ROV route-map inbound on a transit's eBGP
-# route-bearing neighbours, then soft-refresh so VRPs are re-evaluated. The
-# rpki cache and RM-ROV-IN route-map live in the committed config; this only
-# binds/unbinds them, so ROV is off until ./ctl rov on.
-_rov_apply() {
-    local node="$1" asn="$2" kw="$3"; shift 3
+# Apply ("") or remove ("no ") a named inbound route-map on a transit's eBGP
+# neighbours, then soft-refresh. Used for both RM-ROV-IN (./ctl rov) and
+# RM-LP-CUSTOMER (./ctl localpref); both live committed-but-unbound in the configs,
+# and the two are never bound at once (their scenarios are disjoint).
+_rmap_apply() {
+    local node="$1" asn="$2" rmap="$3" kw="$4"; shift 4
     {
         echo "configure terminal"; echo "router bgp $asn"
         echo "address-family ipv4 unicast"
-        for nb in "$@"; do echo "${kw}neighbor $nb route-map RM-ROV-IN in"; done
+        for nb in "$@"; do echo "${kw}neighbor $nb route-map $rmap in"; done
+        echo "end"; echo "clear bgp ipv4 unicast * soft in"
+    } | docker exec -i "clab-${LAB}-${node}" vtysh >/dev/null
+}
+
+# Build an IRR prefix-list for one customer AS from FMDA's route objects (bgpq4 on
+# registry-irr, -p to allow the lab's private ASNs) and load it onto the customer's
+# transit. PL-IRR-<asn> then permits exactly what the IRR authorises, no more.
+_irr_build_load() {
+    local node="$1" asn="$2" pl
+    # -T disables bgpq4 pipelining: it is a throughput optimisation for large
+    # AS-SET expansions (no benefit for the lab's single-AS lookups) and it avoids
+    # a rare, non-deterministic hang seen in bgpq4's pipelined exchange with IRRd.
+    # -p allows the lab's private ASNs.
+    pl="$(docker exec "$REGISTRY_IRR" bgpq4 -T -h localhost -p -l "PL-IRR-${asn}" "AS${asn}" 2>/dev/null)"
+    { echo "configure terminal"; echo "$pl"; echo "end"; } \
+        | docker exec -i "clab-${LAB}-${node}" vtysh >/dev/null
+}
+
+# Bind ("") or unbind ("no ") PL-IRR-<asn> inbound on a transit's customer neighbour.
+_irr_apply() {
+    local node="$1" bgpasn="$2" asn="$3" kw="$4" nb="$5"
+    {
+        echo "configure terminal"; echo "router bgp $bgpasn"
+        echo "address-family ipv4 unicast"
+        echo "${kw}neighbor $nb prefix-list PL-IRR-${asn} in"
         echo "end"; echo "clear bgp ipv4 unicast * soft in"
     } | docker exec -i "clab-${LAB}-${node}" vtysh >/dev/null
 }
@@ -130,24 +158,6 @@ _vrp_count() {
         2>/dev/null
 }
 
-# Make Routinator re-validate now (its periodic refresh is slow), wait until its
-# VRP count actually changes from $1 (so the RTR update has been computed), let
-# the push reach the transits, then re-pull routes so the new validity is
-# enforced. Robust for both poison (count drops) and restore (count rises).
-_rpki_refresh() {
-    local before="$1" now
-    docker exec "$REGISTRY_RTR" pkill -USR1 routinator 2>/dev/null || true
-    for _ in $(seq 1 40); do
-        sleep 2
-        now="$(_vrp_count)"
-        [ -n "$now" ] && [ "$now" != "$before" ] && break
-    done
-    sleep 3   # let the RTR push reach the transits
-    for t in transit-a transit-b; do
-        docker exec "clab-${LAB}-$t" vtysh -c 'clear bgp ipv4 unicast * soft in' >/dev/null 2>&1
-    done
-}
-
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -164,13 +174,18 @@ case "$CMD" in
     docker build -q -t idsl-seed          clab/seed
     docker build -q -t idsl-registry-ca   clab/registry/krill
     docker build -q -t idsl-registry-rtr  clab/registry/routinator
+    docker build -q -t idsl-registry-irr  clab/registry/irrd
     docker build -q -t idsl-bmp-collector clab/bmp
-    echo "[ctl] Creating bridges $BRIDGE, $SERVICES_BRIDGE (sudo) ..."
+    docker build -q -t idsl-bastion       clab/bastion
+    echo "[ctl] Creating bridges $BRIDGE, $SERVICES_BRIDGE, $REGPUB_BRIDGE (sudo) ..."
     sudo ip link add "$BRIDGE" type bridge 2>/dev/null || true
     sudo ip link set "$BRIDGE" up
     sudo ip addr add "$HOST_IP" dev "$BRIDGE" 2>/dev/null || true
     sudo ip link add "$SERVICES_BRIDGE" type bridge 2>/dev/null || true
     sudo ip link set "$SERVICES_BRIDGE" up
+    # The registry-public segment (submission face); internal, no host IP, like services.
+    sudo ip link add "$REGPUB_BRIDGE" type bridge 2>/dev/null || true
+    sudo ip link set "$REGPUB_BRIDGE" up
     echo "[ctl] Deploying topology (seed injects $SEED_COUNT prefixes) ..."
     # SEED_COUNT and KRILL_TOKEN are read by the topology's ${VAR:=default}
     # substitutions; pass them through sudo.
@@ -180,10 +195,10 @@ case "$CMD" in
     _rpki_link
     echo ""
     echo "  Lab is up."
+    echo "  Session manager:         ./ctl session      (run in another terminal, positions the world)"
+    echo "  Play locally:            ./ctl player       (enter the bastion with a cohort key)"
     echo "  Operator looking glass:  ./ctl table        (./ctl lg for JSON)"
-    echo "  Operator foothold:       ./ctl vtysh attacker-as"
     echo "  RPKI status:             ./ctl rpki         (re-onboard: ./ctl rpki-init)"
-    echo "  Play locally:            ./ctl player    (generates a cohort key)"
     echo "  Cohort keys for others:  ./ctl cohort-keys"
     echo "  Stop:                    ./ctl down"
     ;;
@@ -199,9 +214,10 @@ case "$CMD" in
         echo "[ctl] Reaping orphaned $LAB containers (topology drift) ..."
         docker rm -f $orphans >/dev/null
     fi
-    echo "[ctl] Removing bridges $BRIDGE, $SERVICES_BRIDGE (sudo) ..."
+    echo "[ctl] Removing bridges $BRIDGE, $SERVICES_BRIDGE, $REGPUB_BRIDGE (sudo) ..."
     sudo ip link del "$BRIDGE" 2>/dev/null || true
     sudo ip link del "$SERVICES_BRIDGE" 2>/dev/null || true
+    sudo ip link del "$REGPUB_BRIDGE" 2>/dev/null || true
     ;;
 
   table)
@@ -247,26 +263,75 @@ case "$CMD" in
       off) KW="no " ;;
       *)   echo "usage: ./ctl rov on|off"; exit 1 ;;
     esac
-    _rov_apply transit-a 65001 "$KW" 10.0.0.2 10.0.0.6 10.0.0.26
-    _rov_apply transit-b 65002 "$KW" 10.0.0.1 10.0.0.10 10.0.0.30
+    _rmap_apply transit-a 65001 RM-ROV-IN "$KW" 10.0.0.2 10.0.0.6 10.0.0.26
+    _rmap_apply transit-b 65002 RM-ROV-IN "$KW" 10.0.0.1 10.0.0.10 10.0.0.30
     echo "[ctl] ROV $2 on transit-a and transit-b"
     ;;
 
-  roa)
-    # ROA poisoning demo: withdraw or restore FDEI's /24 ROA. With it present the
-    # attacker's 203.0.113.0/25 is RPKI-invalid (ROV drops it); withdrawn, the /25
-    # becomes not-found and ROV lets the hijack through again.
-    tok="$(cat access/krill-token 2>/dev/null || true)"
-    KX="docker exec -e KRILL_CLI_TOKEN=$tok -e KRILL_CLI_SERVER=https://localhost:3000/ $REGISTRY_CA krillc"
-    before="$(_vrp_count)"
+  localpref)
+    # Customer-over-peer local-preference at the transits (off by default), bound on
+    # the customer neighbours only so customer-learned routes win on policy rather
+    # than specificity. Used by route-leak and policy-trust-abuse. Never on at once
+    # with ROV (those scenarios run ROV off), so the inbound route-map slot is free.
     case "${2:-}" in
-      poison)  $KX roas update --ca fmda --remove "203.0.113.0/24-24 => 65010" >/dev/null
-               echo "[ctl] FDEI ROA withdrawn: the /25 hijack now validates (not-found)" ;;
-      restore) $KX roas update --ca fmda --add "203.0.113.0/24-24 => 65010" >/dev/null
-               echo "[ctl] FDEI ROA restored: the /25 hijack is RPKI-invalid again" ;;
-      *) echo "usage: ./ctl roa poison|restore"; exit 1 ;;
+      on)  KW="" ;;
+      off) KW="no " ;;
+      *)   echo "usage: ./ctl localpref on|off"; exit 1 ;;
     esac
-    _rpki_refresh "$before"
+    _rmap_apply transit-a 65001 RM-LP-CUSTOMER "$KW" 10.0.0.6 10.0.0.54
+    _rmap_apply transit-b 65002 RM-LP-CUSTOMER "$KW" 10.0.0.10 10.0.0.58
+    echo "[ctl] local-preference $2 on transit-a and transit-b (customer neighbours)"
+    ;;
+
+  irr)
+    # IRR prefix filtering, a per-scenario toggle off by default (like ROV). bgpq4
+    # on registry-irr turns FMDA's route objects into per-customer prefix-lists; on
+    # binds them inbound on the customer neighbours (transit-a {victim 65010},
+    # transit-b {attacker 65020}). The legitimacy-subversion attack launders a route
+    # object into IRRd, then `irr rebuild` re-derives the filter and the new prefix
+    # passes. See PLAN.md section 19.
+    case "${2:-}" in
+      rebuild)
+        _irr_build_load transit-a 65010
+        _irr_build_load transit-b 65020
+        for t in transit-a transit-b; do
+            docker exec "clab-${LAB}-$t" vtysh -c 'clear bgp ipv4 unicast * soft in' >/dev/null 2>&1
+        done
+        echo "[ctl] IRR prefix-lists rebuilt from FMDA on transit-a and transit-b"
+        ;;
+      on)
+        _irr_build_load transit-a 65010
+        _irr_build_load transit-b 65020
+        _irr_apply transit-a 65001 65010 "" 10.0.0.6
+        _irr_apply transit-b 65002 65020 "" 10.0.0.10
+        echo "[ctl] IRR filtering ON: customers filtered to their FMDA route objects"
+        ;;
+      off)
+        _irr_apply transit-a 65001 65010 "no " 10.0.0.6
+        _irr_apply transit-b 65002 65020 "no " 10.0.0.10
+        echo "[ctl] IRR filtering OFF: permissive baseline"
+        ;;
+      *) echo "usage: ./ctl irr on|off|rebuild"; exit 1 ;;
+    esac
+    ;;
+
+  irr-export)
+    # Capture the IRR-change telemetry heimdallr correlates: the current FMDA route
+    # objects (the registry state, including any laundered one) and the journal of
+    # changes (the NRTM add/delete record, the arming signal). Commit one known-good
+    # bundle per scenario (PLAN.md sections 8 and 19).
+    OUT="${2:-irr-export}"; mkdir -p "$OUT"
+    for asn in 65010 65020 65001; do
+        echo "# AS$asn"
+        docker exec "$REGISTRY_IRR" bgpq4 -T -h localhost -p -l "PL-IRR-${asn}" "AS${asn}" 2>/dev/null
+    done > "$OUT/irr-routes.txt"
+    # The change journal is IRRd's own raw record (keep_journal); read it from the
+    # database rather than NRTM (which needs a mirror access list). The bulk seed
+    # load is not journalled, so a play's journal is exactly the launder add/delete.
+    docker exec "$REGISTRY_IRR" su postgres -c \
+        "psql irrd -A -F'|' -c \"SELECT serial_global, operation, object_class, rpsl_pk, timestamp FROM rpsl_database_journal ORDER BY serial_global;\"" \
+        > "$OUT/irr-journal.txt" 2>/dev/null
+    echo "[ctl] IRR telemetry exported to $OUT/ (irr-routes.txt, irr-journal.txt)"
     ;;
 
   rpki-export)
@@ -311,6 +376,15 @@ case "$CMD" in
     exec "$PY" "$REPO/scorer/scorer.py" --scenario "$SCEN" --source "$SRC"
     ;;
 
+  session)
+    # Operator-side session manager: watch the bastion's /control channel and, per
+    # scenario the player selects, set the world posture (rov/irr/roa), plant the
+    # loot on the start box, arm the scorer for the flag, copy the bundle on
+    # completion, and reset to baseline on release. Foreground loop, run alongside
+    # the lab in its own terminal. See scorer/session.py.
+    PY="$REPO/.venv/bin/python"; [ -x "$PY" ] || PY="$(command -v python3)"
+    exec "$PY" "$REPO/scorer/session.py"
+    ;;
 
   cohort-keys)
     ssh-keygen -t ed25519 -f "$REPO/cohort-key" -N "" -C "idsl-cohort-key" -q
@@ -320,18 +394,18 @@ case "$CMD" in
     echo "  Distribute the private key to participants:  $REPO/cohort-key"
     echo ""
     echo "  Local play, the host is on the access bridge ($BRIDGE, ${HOST_IP%/*}):"
-    echo "      ssh -i cohort-key player@$OPS_HOST_IP"
+    echo "      ssh -i cohort-key player@$BASTION_IP"
     echo ""
     echo "  Production, the access LAN is internal and there is no published port."
     echo "  Players jump through a restricted account on the lab host:"
-    echo "      ssh -i cohort-key -J jump@<lab-host> player@$OPS_HOST_IP"
+    echo "      ssh -i cohort-key -J jump@<lab-host> player@$BASTION_IP"
     ;;
 
   playtest)
     # Operator check: walk the player path straight after `up`, using the lab
     # key. No cohort key needed, so this works the moment the lab is up.
-    echo "[ctl] (operator) entering ops-host via lab-key ..."
-    _ssh_lab "player@$OPS_HOST_IP"
+    echo "[ctl] (operator) entering the bastion via lab-key ..."
+    _ssh_lab "player@$BASTION_IP"
     ;;
 
   player)
@@ -343,20 +417,23 @@ case "$CMD" in
         ssh-keygen -t ed25519 -f cohort-key -N "" -C "idsl-cohort-key" -q
     fi
     _ensure_keys
-    echo "[ctl] Entering ops-host as player ($OPS_HOST_IP) via cohort-key ..."
+    echo "[ctl] Entering the bastion as player ($BASTION_IP) via cohort-key ..."
+    echo "[ctl] (run './ctl session' in another terminal so scenarios position the world)"
     ssh -i cohort-key -o IdentitiesOnly=yes \
         -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-        "player@$OPS_HOST_IP"
+        "player@$BASTION_IP"
     ;;
 
   help|*)
     cat <<EOF
 Usage: ./ctl <command>
 
-Operator (god-mode):
-  up            generate keys, build images, create access bridge, deploy
+Operator (deploy, observe, world posture):
+  up            generate keys, build images, create bridges, deploy
                 (SEED_COUNT=N ./ctl up sets the backbone table size)
-  down          destroy the topology, remove the access bridge
+  down          destroy the topology, remove the bridges
+  session       session manager: watch the bastion, set posture/loot per scenario,
+                arm the scorer, copy the bundle on completion (run alongside the lab)
   table         looking glass: show ip bgp on the observer
   lg            looking glass, structured: show ip bgp json
   ssh NODE      shell on a node       (e.g. ./ctl ssh attacker-as)
@@ -364,19 +441,27 @@ Operator (god-mode):
   seed-fetch [N]  refresh the backbone seed from a live dump (network needed)
   rpki          show the trust fabric: Routinator VRPs + FMDA ROAs
   rpki-init     (re)onboard the FMDA CA and baseline ROAs
-  rov on|off    turn origin validation on/off at the transits (off by default)
-  roa poison|restore  withdraw/restore FDEI's ROA (the ROA-poisoning demo)
+  rov on|off    origin validation on/off at the transits (defence posture)
+  irr on|off|rebuild  IRR prefix filtering at the transits (defence posture)
+  localpref on|off    customer-over-peer local-pref at the transits (route-leak,
+                      policy-trust-abuse; never on at once with rov)
   rpki-export [dir]   dump VRPs + ROAs + Routinator log (telemetry for heimdallr)
+  irr-export  [dir]   dump IRR route objects + journal (telemetry for heimdallr)
   score [scenario] [poll|bmp]  score the flag + write the timeline; poll (M4 inc 1)
                                or bmp (inc 2, the bmp-collector feed, exact timing)
 
-Player surface:
-  player        play locally: enter the ops host with a cohort key (auto-made)
+Player surface (the door):
+  player        play locally: enter the bastion with a cohort key (auto-made)
   playtest      operator check of the player path, using the lab key
   cohort-keys   generate a participant keypair to hand out (local or via -J)
 
-Nodes: transit-a transit-b victim-as attacker-as observer lookingglass
-       seed registry-ca registry-rtr bmp-collector ops-host web eyeball
+Attacker actions are NOT here: the player performs them from the Phase-1 box the
+bastion drops them on (vtysh on the foothold; bin/launder and bin/poison on the
+registry workstation). Cleanup is ./ctl down && ./ctl up, never an undo verb.
+
+Nodes: transit-a transit-b victim-as attacker-as customer-leaky observer
+       lookingglass seed registry-ca registry-rtr registry-irr bmp-collector
+       bastion ops-host web eyeball
 EOF
     ;;
 

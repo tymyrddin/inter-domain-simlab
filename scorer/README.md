@@ -32,7 +32,10 @@ Three jobs in one loop:
   around what the observer emits, not inherited from red-lantern-sim.
 - Score and emit. Evaluate the flag from the scenario's structured `target:` block
   (the `hijack_prefix` reaching the table with `hijack_origin`), not the prose
-  `flag_condition.check`, and write the timeline.
+  `flag_condition.check`, and write the timeline. Scenarios whose effect is regional
+  (route-leak, policy-trust-abuse) set `score_node:` so the flag is judged at a
+  specific transit, and route-leak sets `leak_via:` to match the leaker AS in the
+  path rather than a new origin (the origin is unchanged by a leak).
 
 ## The event envelope
 
@@ -53,13 +56,23 @@ invalid and not-found.
 
 ## Artefacts and the heimdallr hand-off
 
-The timeline lands at `artefacts/<scenario>/timeline.json`. That directory is the
-per-scenario export bundle: the timeline here, alongside the MRT dump (M2) and the
-RPKI validator and ROA-change logs (`./ctl rpki-export`, M3). Copy the bundle into
-heimdallr's `ingest/` and its routing feeder reads it directly, MRT, BMP,
-JSON-timeline and RPKI, into Wazuh log lines. The scorer's output and heimdallr's
-input are designed to match, so the hand-off is a file copy, never a live link.
-Commit one known-good bundle per scenario.
+Two outputs, kept apart on purpose. The scorer's timeline (the derived, labelled
+record: more-specific, MOAS, the flag, the RPKI state per event) lands at
+`scoring/<scenario>/timeline.json`. That is the lab's own scoring record and the
+ground truth a detector is judged against; it never goes into the ingest bundle,
+because a detector trained or tested on the answers is grading itself.
+
+The heimdallr bundle is the raw, unlabelled half: `artefacts/<scenario>/` holds the
+collector's `events.jsonl`, the RPKI export (VRPs, ROAs, the ROA-change history and
+the validator log, `./ctl rpki-export`) and, for the IRR scenario, the route objects
+and journal (`./ctl irr-export`). Copy that directory into heimdallr's `ingest/` and
+its routing feeder reads it directly. The bundle carries the re-convergence noise the
+routing system actually produced around the attack, not a filtered signal.
+
+On a played scenario the session manager (`./ctl session`, the primary path) writes
+both when the flag fires: the timeline to `scoring/` and the raw bundle to
+`artefacts/`. `./ctl score` is the same scoring loop run standalone against a
+hand-driven attack. Commit one known-good bundle per scenario.
 
 ## Increment 2: the BMP feed
 

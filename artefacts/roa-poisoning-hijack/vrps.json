@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "generated": 1781562036,
-    "generatedTime": "2026-06-15T22:20:36Z"
+    "generated": 1781799787,
+    "generatedTime": "2026-06-18T16:23:07Z"
   },
   "roas": [
     { "asn": "AS65001", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "krill" },

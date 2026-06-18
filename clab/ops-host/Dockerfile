@@ -1,13 +1,14 @@
 FROM wbitt/network-multitool:latest
 
-# inter-domain-simlab attacker ops host: the player's workstation and the one
-# sanctioned entry into the lab. It carries recon and traffic tooling and an
-# SSH client for pivoting to the foothold; it does not run BGP itself. The
-# offensive announcement crafting (ExaBGP/GoBGP/bgpq4) is a later upgrade, in
-# milestone 1.5 the player drives the foothold's own vtysh by hand.
+# inter-domain-simlab registry-attacker workstation: the Phase-1 box for the
+# registry-tamper scenarios. The bastion (the door) drops the player here for
+# legitimacy-subversion and roa-poisoning; from here they submit to FMDA's IRR
+# (launder) or withdraw FDEI's ROA from Krill (poison) over the regpub segment,
+# using credentials planted in /loot, then pivot to the foothold to announce.
+# It runs no BGP itself; it carries curl + an SSH client for the pivot.
 #
-# Key-only, no published port: the player enters over the internal access LAN
-# (reached from the operator host's bridge address), never from a 0.0.0.0 port.
+# Key-only, no published port: reached only via the bastion's pivot key over the
+# internal access LAN, never from a 0.0.0.0 port.
 
 RUN apk add --no-cache openssh openssh-client tcpdump mtr bind-tools curl traceroute bash
 
@@ -30,6 +31,9 @@ COPY start.sh      /opt/start.sh
 COPY motd          /etc/motd
 COPY bin/foothold  /usr/local/bin/foothold
 COPY bin/lg        /usr/local/bin/lg
-RUN chmod +x /opt/start.sh /usr/local/bin/foothold /usr/local/bin/lg
+COPY bin/launder   /usr/local/bin/launder
+COPY bin/poison    /usr/local/bin/poison
+RUN chmod +x /opt/start.sh /usr/local/bin/foothold /usr/local/bin/lg \
+             /usr/local/bin/launder /usr/local/bin/poison
 
 ENTRYPOINT ["/opt/start.sh"]

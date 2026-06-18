@@ -94,14 +94,11 @@ the hijack stops working:
        ./ctl rov on        # transits drop RPKI-invalid routes; the /25 is dropped
        ./ctl table | grep 203.0.113   # only the legitimate /24 remains
 
-That is the same defence a real provider deploys. The attacker's counter is to
-reach the registry, not just the routers, the route-legitimacy angle. Withdraw or
-weaken FDEI's ROA and the /25 goes not-found, which ROV lets through:
-
-       ./ctl roa poison    # FDEI's ROA withdrawn; the /25 is not-found
-       ./ctl table | grep 203.0.113   # the /25 wins again, under cover
-       ./ctl roa restore   # put the ROA back; the defence holds again
        ./ctl rov off       # return to the permissive baseline
 
-A ROA change takes a few seconds to propagate (Routinator re-validates, the
-transits re-pull). `./ctl rpki` shows the current VRPs and ROAs.
+That is the same defence a real provider deploys. The attacker's counter is to
+reach the registry, not just the routers: withdraw or weaken FDEI's ROA and the /25
+goes not-found, which ROV lets through. That is its own scenario,
+`roa-poisoning-hijack`, where the player does it from a compromised CA position
+(a planted token, a real call to Krill's API), not an operator knob. See its
+reference solution. `./ctl rpki` shows the current VRPs and ROAs.

@@ -27,11 +27,18 @@
 #   registry services segment             10.0.0.32/28   registry-ca=.33
 #     (idsl_services bridge)                             registry-rtr=.34
 #                                                        transit-a=.35 transit-b=.36
+#                                                        registry-irr=.37
 #   observer eth3 <-> bmp-collector eth1  10.0.0.48/30   ob=.49 bmp=.50
+#   transit-a eth8 <-> customer-leaky eth1 10.0.0.52/30  a=.53 leaky=.54
+#   transit-b eth6 <-> customer-leaky eth2 10.0.0.56/30  b=.57 leaky=.58
+#   registry-public segment               10.0.0.64/28   registry-irr=.65
+#     (idsl_regpub bridge; submission face)              registry-ca=.66
+#                                                        ops-host=.67
 #   victim-as eth2 <-> web eth1           203.0.113.0/24 victim=.1 web=.10
 #   transit-a eth4 <-> eyeball eth1       192.0.2.0/24   a=.1   eyeball=.10
 #   access LAN (idsl_access bridge)       100.64.0.0/24  attacker-as=.1
-#                                                        ops-host=.10 lg=.20
+#                                                        bastion=.5 ops-host=.10
+#                                                        lg=.20 customer-leaky=.30
 #                                                        operator host=.254
 
 name: inter-domain
@@ -59,6 +66,13 @@ topology:
     # RTR and Routinator reaches Krill's publication point over this. Internal,
     # no NAT, no egress; created by ./ctl up alongside idsl_access.
     idsl_services: { kind: bridge }
+
+    # Registry-public segment (10.0.0.64/28): the submission face of the registry.
+    # The registry-attacker workstation (ops-host) reaches IRRd's HTTP submit API
+    # (:8080) and Krill's API (:3000) here, with planted maintainer/CA loot. Kept
+    # separate from idsl_services so the player touches only the public submission
+    # face, never the internal RTR/validation plane. Created by ./ctl up.
+    idsl_regpub: { kind: bridge }
 
     # ── Backbone and edge ASes (all FRR, one image) ─────────────────────
     transit-a:
@@ -92,6 +106,18 @@ topology:
         - ../configs/attacker-as.conf:/etc/frr/frr.conf
         - ../access/authorized_keys:/home/admin/.ssh/authorized_keys:ro
       labels: { role: attacker, asn: "65020", func: customer, lore: "Bracket Hosting" }
+
+    # A multi-homed leaky ISP: a customer of BOTH transits (eth1=transit-a,
+    # eth2=transit-b) and reachable for the player over the access LAN (eth3) the way
+    # the foothold is. Valley-free by default; the route-leak scenario is a player on
+    # this box widening its export so it re-announces a transit-a route to transit-b.
+    customer-leaky:
+      image: clab-router
+      binds:
+        - ../configs/daemons:/etc/frr/daemons
+        - ../configs/customer-leaky.conf:/etc/frr/frr.conf
+        - ../access/authorized_keys:/home/admin/.ssh/authorized_keys:ro
+      labels: { role: customer, asn: "65030", func: "ISP (multi-homed, leaky)", lore: "Mudflat Networks" }
 
     observer:
       image: clab-router
@@ -158,6 +184,9 @@ topology:
       labels: { role: registry, func: "RIR (Krill CA)", lore: FMDA }
       exec:
         - sh -c "n=0; until ip link show eth1 >/dev/null 2>&1; do n=$((n+1)); [ $n -ge 30 ] && break; sleep 1; done; ip addr add 10.0.0.33/28 dev eth1 && ip link set eth1 up"
+        # eth2: the public submission face (regpub). Krill binds 0.0.0.0:3000, so
+        # the workstation reaches the CA API here with the planted token.
+        - sh -c "n=0; until ip link show eth2 >/dev/null 2>&1; do n=$((n+1)); [ $n -ge 30 ] && break; sleep 1; done; ip addr add 10.0.0.66/28 dev eth2 && ip link set eth2 up"
 
     registry-rtr:
       image: idsl-registry-rtr
@@ -166,21 +195,59 @@ topology:
       cap-add: [NET_ADMIN]
       labels: { role: registry, func: "RIR (Routinator/RTR)", lore: FMDA }
 
-    # ── Player entry ────────────────────────────────────────────────────
-    # network-mode: none means no mgmt eth0 at all; the only interface is eth1
-    # on the access LAN. player_authorized_keys holds the cohort key(s); the lab
-    # access key is staged at /run/lab-key for the foothold/lg pivots.
+    registry-irr:
+      image: idsl-registry-irr
+      cap-add: [NET_ADMIN]
+      labels: { role: registry, func: "RIR (IRRd)", lore: FMDA }
+      exec:
+        - sh -c "n=0; until ip link show eth1 >/dev/null 2>&1; do n=$((n+1)); [ $n -ge 30 ] && break; sleep 1; done; ip addr add 10.0.0.37/28 dev eth1 && ip link set eth1 up"
+        # eth2: the public submission face (regpub). IRRd binds 0.0.0.0:8080 (HTTP
+        # submit API) and :43 (whois); the workstation submits the laundered object here.
+        - sh -c "n=0; until ip link show eth2 >/dev/null 2>&1; do n=$((n+1)); [ $n -ge 30 ] && break; sleep 1; done; ip addr add 10.0.0.65/28 dev eth2 && ip link set eth2 up"
+
+    # ── Player entry: the bastion (the one door) ────────────────────────
+    # The only reachable endpoint. Players SSH in with a cohort key and meet a
+    # ForceCommand-locked welcome + scenario menu (no shell). On a choice it writes
+    # the selection to /control (the host-side `ctl session` enacts posture + loot)
+    # and ProxyJumps the player to the scenario's Phase-1 box with the pivot key
+    # staged at /run/lab-key. The bastion holds no god-mode; it requests, the
+    # operator side enacts. network-mode: none; only eth1 on the access LAN.
+    bastion:
+      image: idsl-bastion
+      network-mode: none
+      labels: { role: access, func: "bastion (player door)", lore: "Bracket Hosting" }
+      binds:
+        - ../access/cohort_authorized_keys:/home/player/.ssh/authorized_keys:ro
+        - ../lab-key:/run/lab-key:ro
+        - ../access/control:/control
+        - ../access/bundles:/bundles:ro
+        - ../scenarios:/scenarios:ro
+      cap-add: [NET_ADMIN]
+      exec:
+        - sh -c "n=0; until ip link show eth1 >/dev/null 2>&1; do n=$((n+1)); [ $n -ge 30 ] && break; sleep 1; done; ip addr add 100.64.0.5/24 dev eth1 && ip link set eth1 up"
+
+    # ── Registry-attacker workstation (repurposed ops-host) ─────────────
+    # No longer the entry (the bastion is). Reached only via the bastion's pivot
+    # key (lab-key, in access/authorized_keys). The Phase-1 box for the registry
+    # scenarios: it reaches IRRd's submit API and Krill's API over regpub (eth2),
+    # uses planted loot the session manager drops in /loot, and pivots to the
+    # foothold (foothold helper) for the announce. eth1 on the access LAN.
     ops-host:
       image: idsl-ops-host
       network-mode: none
-      labels: { role: host, func: "host (attacker workstation)", lore: "Bracket Hosting" }
+      labels: { role: host, func: "host (registry-attacker workstation)", lore: "Bracket Hosting" }
       binds:
-        - ../access/player_authorized_keys:/home/player/.ssh/authorized_keys:ro
+        - ../access/authorized_keys:/home/player/.ssh/authorized_keys:ro
         - ../lab-key:/run/lab-key:ro
+        - ../access/loot:/loot
       cap-add: [NET_ADMIN, NET_RAW]
       exec:
         - sh -c "n=0; until ip link show eth1 >/dev/null 2>&1; do n=$((n+1)); [ $n -ge 30 ] && break; sleep 1; done; ip addr add 100.64.0.10/24 dev eth1 && ip link set eth1 up"
+        - sh -c "n=0; until ip link show eth2 >/dev/null 2>&1; do n=$((n+1)); [ $n -ge 30 ] && break; sleep 1; done; ip addr add 10.0.0.67/28 dev eth2 && ip link set eth2 up"
         - sh -c "ip route replace default via 100.64.0.1"
+        # Resolve the registry submission faces to their regpub addresses (Krill's
+        # cert is for fmda-ca.lab, so the hostname matters for TLS).
+        - sh -c "grep -q fmda-irr.lab /etc/hosts || echo '10.0.0.65 fmda-irr.lab' >> /etc/hosts; grep -q fmda-ca.lab /etc/hosts || echo '10.0.0.66 fmda-ca.lab' >> /etc/hosts"
 
     # ── Traffic plane ───────────────────────────────────────────────────
     web:
@@ -217,9 +284,19 @@ topology:
     - endpoints: [registry-rtr:eth1, idsl_services:is1]  # 10.0.0.34
     - endpoints: [transit-a:eth7,    idsl_services:is2]  # 10.0.0.35
     - endpoints: [transit-b:eth5,    idsl_services:is3]  # 10.0.0.36
+    - endpoints: [registry-irr:eth1, idsl_services:is4]  # 10.0.0.37
+    # registry-public segment 10.0.0.64/28 (submission face: IRRd :8080/:43, Krill :3000)
+    - endpoints: [registry-irr:eth2, idsl_regpub:rp0]   # 10.0.0.65
+    - endpoints: [registry-ca:eth2,  idsl_regpub:rp1]   # 10.0.0.66
+    - endpoints: [ops-host:eth2,     idsl_regpub:rp2]   # 10.0.0.67
     - endpoints: [victim-as:eth2, web:eth1]            # 203.0.113.0/24
     - endpoints: [transit-a:eth4, eyeball:eth1]        # 192.0.2.0/24
-    # access LAN: foothold, player workstation and looking glass share a bridge
+    # access LAN: bastion (door), foothold, workstation and looking glass share a bridge
     - endpoints: [attacker-as:eth2,  idsl_access:ia0]  # 100.64.0.1
+    - endpoints: [bastion:eth1,      idsl_access:ia3]  # 100.64.0.5
     - endpoints: [ops-host:eth1,     idsl_access:ia1]  # 100.64.0.10
     - endpoints: [lookingglass:eth1, idsl_access:ia2]  # 100.64.0.20
+    - endpoints: [customer-leaky:eth3, idsl_access:ia4]  # 100.64.0.30 (player SSH)
+    # customer-leaky multi-homing: a customer of both transits
+    - endpoints: [transit-a:eth8, customer-leaky:eth1]  # 10.0.0.52/30
+    - endpoints: [transit-b:eth6, customer-leaky:eth2]  # 10.0.0.56/30

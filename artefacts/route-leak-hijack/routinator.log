@@ -1,0 +1,3 @@
+[rtr] waiting for the Krill TAL in /share (run ./ctl rpki-init) ...
+[rtr] starting Routinator against the local Krill TAL only
+[WARN] Using config file /etc/routinator/routinator.conf.

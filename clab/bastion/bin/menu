@@ -1,0 +1,108 @@
+#!/bin/bash
+# Bastion menu / ForceCommand. This is the only command a player can run here:
+# no shell is granted. It lists scenarios, asks the host-side session manager to
+# position the world (posture + loot) via the /control channel, then ProxyJumps
+# the player onto the scenario's Phase-1 box. The attack itself is the player's,
+# performed from that box against real interfaces, never from here.
+set -u
+
+CONTROL=/control
+SCEN_DIR=/scenarios
+KEY=/home/player/.ssh/id_ed25519
+SSHOPTS="-i $KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+# --- bundle download passthrough -------------------------------------------
+# ForceCommand intercepts scp too. Permit a read-only scp source from /bundles
+# only (download a finished run's bundle); refuse everything else.
+if [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
+    case "$SSH_ORIGINAL_COMMAND" in
+        "scp -f /bundles/"*|"scp -f -- /bundles/"*)
+            exec $SSH_ORIGINAL_COMMAND ;;
+        *)
+            echo "Only an interactive menu session or a bundle scp from /bundles is permitted." >&2
+            exit 1 ;;
+    esac
+fi
+
+field() {  # field <key> <scenario>  -> value, inline comments and quotes stripped
+    grep -m1 "^[[:space:]]*$1:" "$SCEN_DIR/$2/scenario.yaml" 2>/dev/null \
+      | cut -d: -f2- | sed 's/#.*//; s/^[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//'
+}
+
+declare -A SC
+list_scenarios() {
+    local i=0 d name title
+    SC=()
+    for d in "$SCEN_DIR"/*/; do
+        [ -f "$d/scenario.yaml" ] || continue
+        name=$(basename "$d")
+        title=$(field title "$name")
+        i=$((i+1)); SC[$i]="$name"
+        printf "  %2d) %-30s %s\n" "$i" "$name" "$title"
+    done
+    N=$i
+}
+
+drop_onto() {  # drop_onto <start_box>
+    case "$1" in
+        attacker-as)    ssh -t $SSHOPTS admin@100.64.0.1 ;;
+        ops-host)       ssh -t $SSHOPTS player@100.64.0.10 ;;
+        customer-leaky) ssh -t $SSHOPTS admin@100.64.0.30 ;;
+        *) echo "unknown start box: $1"; return 1 ;;
+    esac
+}
+
+completion_menu() {  # completion_menu <scenario>
+    local scen="$1" flag
+    if [ "$(cat "$CONTROL/completed" 2>/dev/null)" = "$scen" ]; then
+        flag=$(field rootme_flag "$scen")
+        echo
+        echo "  ============================================================"
+        echo "  $scen: COMPLETE"
+        echo "  flag: $flag"
+        echo "  bundle: scp -O -i <cohort-key> player@<lab-host>:/bundles/$scen/bundle.tar.gz ."
+        echo "  ============================================================"
+    else
+        echo
+        echo "  (no completion recorded for $scen; the flag did not fire this session)"
+    fi
+    # Release the scenario so the operator side resets posture and clears loot.
+    echo "$scen" > "$CONTROL/release" 2>/dev/null || true
+}
+
+run_scenario() {  # run_scenario <scenario>
+    local scen="$1" box ok="" n
+    box=$(field start_box "$scen")
+    echo "$scen" > "$CONTROL/request" 2>/dev/null || true
+    printf "  Positioning you for %s " "$scen"
+    for n in $(seq 1 30); do
+        [ "$(cat "$CONTROL/ready" 2>/dev/null)" = "$scen" ] && { ok=1; break; }
+        printf "."; sleep 1
+    done
+    echo
+    [ -z "$ok" ] && echo "  (session manager silent; entering anyway, posture may be baseline)"
+    echo "  Dropping you onto: $box"
+    echo
+    drop_onto "$box"
+    completion_menu "$scen"
+}
+
+cat /etc/motd 2>/dev/null
+while true; do
+    echo
+    echo "  Operations:"
+    list_scenarios
+    echo
+    echo "   q) leave the lab"
+    printf "  select> "
+    read -r choice || break
+    case "$choice" in
+        q|Q) echo "  Leaving. Routes stay as left until the operator resets."; break ;;
+        ''|*[!0-9]*) echo "  Pick a number."; continue ;;
+    esac
+    if [ "$choice" -ge 1 ] && [ "$choice" -le "${N:-0}" ] 2>/dev/null; then
+        run_scenario "${SC[$choice]}"
+    else
+        echo "  Out of range."
+    fi
+done

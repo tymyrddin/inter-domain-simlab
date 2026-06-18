@@ -1,0 +1,57 @@
+# Scenario: legitimate-peering more-specific hijack.
+# op-red-lantern technique: legitimate-peering (runbooks). The mechanical core:
+# longest-prefix match dominance. From a legitimate position (no compromise, no
+# forged origin in the sense of "stolen box"), announce a more-specific of the
+# victim's covering block; it wins the slice while the rest of the block routes
+# normally. Deployable on the base topology, no overlay.
+name: legitimate-peering-hijack
+title: Good Neighbour                # working title; pending the op-red-lantern runbook
+technique: legitimate-peering
+overlay: null
+
+roles:
+  attacker: attacker-as              # AS65020, the player's announcing position
+  victim: victim-as                  # AS65010, FDEI, owns 203.0.112.0/22 (covering) + 203.0.113.0/24
+  transit_unfiltered: transit-b      # carries the more-specific without filtering
+  collector: observer                # AS65000, sees the table
+
+target:
+  # The victim's covering allocation is the /22; the web's /24 sits inside it. The
+  # attacker carves a different /24 out of the /22, one the victim covers only via
+  # the /22, so it is a clean longest-prefix win rather than a same-length MOAS.
+  legitimate_prefix: 203.0.112.0/22
+  legitimate_origin: 65010
+  hijack_prefix: 203.0.114.0/24      # more-specific of the /22, outside the victim's /24
+  hijack_origin: 65020
+
+# Player entry (bastion -> Phase-1 box). Runbook Phase 1 here is administrative, not
+# technical: a legitimate peering (an IX membership, a transit contract). The lab
+# hands you the announcing position, as it does for the hijack family.
+position:
+  start_box: attacker-as             # land in the foothold's vtysh, announce by hand
+  loot: none
+  pivot: none
+
+posture:                             # permissive baseline; this is the pure mechanical core
+  rov: off
+  irr: off
+  roa: baseline
+
+rootme_flag: "IDSL{good-neighbour-more-specific}"
+
+expected_effect: >
+  The attacker announces 203.0.114.0/24 as AS65020. It is more specific than the
+  victim's 203.0.112.0/22, so every router prefers it for that /24 by longest-prefix
+  match, whatever the AS path or policy. The victim's 203.0.113.0/24 (the web) and
+  the rest of the /22 are untouched, so only the carved /24 bends. This is the
+  signature of the technique: partial, quiet, and indistinguishable from ordinary
+  traffic engineering.
+
+flag_condition:
+  # Propagation-based: the collector confirms the more-specific reached the table
+  # with the attacker's origin, while the covering block stays with the victim.
+  mode: propagation
+  check: >
+    `show ip bgp 203.0.114.0/24 json` on the observer lists a best path with origin
+    AS 65020, while 203.0.112.0/22 and 203.0.113.0/24 still show origin AS 65010 (the
+    rest of the block is unaffected).

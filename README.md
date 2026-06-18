@@ -12,17 +12,28 @@ relationships quietly assume.
 
 ## Status
 
-Milestones 1 through 4 are deployed and validated on containerlab 0.75. The all-FRR
-core converges, the passive collector sees both tables while announcing nothing,
-the first scenario (a false-origin /25 hijack) wins by longest-prefix match and
-diverts traffic, and the player surface works end to end: key-only entry to an ops
-host, an in-band pivot to the foothold router, and a single-vantage looking glass
-that confirms the hijack went global. On top of that core: a real MRT seed gives a
-backbone-sized table, the registry plane runs RPKI origin validation with live ROV
-and ROA toggles (validated over native RRDP), and the observer's scorer normalises a
-BMP feed into the event timeline. IRR phase two, an IXP route server and the extra
-edge ASes are the remaining build; the flask frontend (M5) stays gated on audience.
-See `PLAN.md`.
+Milestones 1 through 4 are deployed and validated on containerlab 0.75, and the
+attacker surface is fully player-driven. The all-FRR core converges and a passive
+collector sees both tables while announcing nothing. A real MRT seed gives a
+backbone-sized table; the registry plane runs RPKI origin validation (live ROV and
+ROA state, validated over native RRDP) and an IRR database with bgpq4 prefix filters;
+and the observer's scorer normalises a BMP feed into an event timeline.
+
+Players enter through one bastion, pick an operation from a menu, and are dropped
+onto the box that operation starts from, with the world positioned for it by a
+session manager (`./ctl session`). Seven scenarios play end to end from that
+position. On the routing-mechanics side: false-origin and legitimate-peering
+more-specific hijacks, and a route leak from a separate multi-homed ISP. On the
+routing-governance side: an incomplete-RPKI not-found hijack, a policy-trust-abuse
+preferred-path hijack, and two registry-tamper chains (ROA poisoning and IRR
+legitimacy subversion) the player performs from a registry workstation with planted
+credentials, never an operator knob. Each run produces a raw telemetry bundle, noise
+and all, for the detection lab (heimdallr).
+
+Remaining build: an IXP route server and extra edge ASes and the scenarios that
+still need them (path manipulation, deniable disruption), the data-plane half of the
+interception and degradation effects, and the flask frontend (M5), which stays gated
+on audience. See `PLAN.md`.
 
 ## Dependencies
 
@@ -39,31 +50,36 @@ Desktop.
 ## Quickstart
 
 ```bash
-./ctl up         # build images, create the access bridge, deploy (prompts sudo)
-./ctl player     # play locally: enter the attacker ops host (makes a cohort key)
+./ctl up         # build images, create the bridges, deploy (prompts sudo)
+./ctl session    # position the world per the scenario the player picks (run alongside)
+./ctl player     # play locally: enter the bastion (makes a cohort key)
 ./ctl down       # tear it down
 ```
 
-From the ops host, `foothold` pivots into the attacker router and `lg` queries the
-looking glass. `./ctl` itself is the operator's god-mode side; a player never uses
-it beyond `player`.
+You come in at the bastion, pick an operation from a menu, and are dropped onto the
+box it starts from: the foothold router in vtysh for a straight hijack, or the
+registry-attacker workstation (`launder`, `poison`) for a registry-tamper move, from
+where you pivot to the foothold with `foothold` and confirm with `lg`. `./ctl` is the
+operator's god-mode side; a player never uses it.
 
 ## Topology (milestones 1 and 1.5)
 
 Private ASNs (64512 to 65534), documentation prefixes (TEST-NET), no internet
 egress, so the lab stays contained.
 
-| Node         | ASN   | Role                                              |
-|--------------|-------|---------------------------------------------------|
-| transit-a    | 65001 | transit provider, peers with transit-b            |
-| transit-b    | 65002 | transit provider, peers with transit-a            |
-| victim-as    | 65010 | customer of transit-a, owns 203.0.113.0/24        |
-| attacker-as  | 65020 | customer of transit-b, the player's foothold      |
-| observer     | 65000 | passive collector, peers both transits (operator) |
-| lookingglass | 65005 | single-vantage public collector (player's `lg`)   |
-| ops-host     | n/a   | the attacker's workstation, the player's entry    |
-| web          | n/a   | victim service behind 203.0.113.0/24              |
-| eyeball      | n/a   | client generating traffic toward the victim       |
+| Node           | ASN   | Role                                               |
+|----------------|-------|----------------------------------------------------|
+| transit-a      | 65001 | transit provider, peers with transit-b             |
+| transit-b      | 65002 | transit provider, peers with transit-a             |
+| victim-as      | 65010 | customer of transit-a, owns 203.0.112.0/22 + /24   |
+| attacker-as    | 65020 | customer of transit-b, the player's foothold       |
+| customer-leaky | 65030 | multi-homed leaky ISP (the route-leak position)    |
+| observer       | 65000 | passive collector, peers both transits (operator)  |
+| lookingglass   | 65005 | single-vantage public collector (player's `lg`)    |
+| bastion        | n/a   | the one door: a menu, then drops you on the box    |
+| ops-host       | n/a   | the registry-attacker workstation (launder/poison) |
+| web            | n/a   | victim service behind 203.0.113.0/24               |
+| eyeball        | n/a   | client generating traffic toward the victim        |
 
 The two transits peer settlement-free; victim and attacker are each a customer of a
 different transit; filtering and origin validation are deliberately loose, which is
@@ -75,5 +91,4 @@ what the attacks exploit.
   the foothold, and how to confirm them.
 - [docs/operator.md](docs/operator.md) for running the lab: the full `ctl` reference, deploying,
   observing, and issuing cohort keys.
-- [scenarios/](scenarios/) for the techniques, each with a briefing and a reference solution.
-- `PLAN.md` for the design record and the milestone roadmap.
+- [scenarios](scenarios) for the techniques, each with a briefing and a reference solution.

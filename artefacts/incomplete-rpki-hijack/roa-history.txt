@@ -1,13 +1,9 @@
 time::command::version::success
-2026-06-15T21:51:12Z::Update repo to server at: https://fmda-ca.lab:3000/rfc8181/fmda/::1::OK
-2026-06-15T21:51:12Z::Add parent 'testbed' as 'RFC 6492 Parent'::2::OK
-2026-06-15T21:51:16Z::Update entitlements under parent 'testbed': 0 => asn: '', ipv4: '192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24', ipv6: '' ::3::OK
-2026-06-15T21:51:16Z::Update received cert in RC '0', with resources 'asn: 0 blocks, v4: 3 blocks, v6: 0 blocks'::4::OK
-2026-06-15T21:51:19Z::Update ROAs  ADD: 203.0.113.0/24-24 => 65010::5::OK
-2026-06-15T21:51:19Z::Update ROAs  ADD: 192.0.2.0/24-24 => 65001::6::OK
-2026-06-15T21:51:19Z::Update ROAs  ADD: 198.51.100.0/24-24 => 65020::7::OK
-2026-06-15T21:53:59Z::Update ROAs  REMOVE: 203.0.113.0/24-24 => 65010::8::OK
-2026-06-15T21:54:25Z::Update ROAs  ADD: 203.0.113.0/24-24 => 65010::9::OK
-2026-06-15T21:59:29Z::Update ROAs  REMOVE: 203.0.113.0/24-24 => 65010::10::OK
-2026-06-15T21:59:52Z::Update ROAs  ADD: 203.0.113.0/24-24 => 65010::11::OK
+2026-06-18T16:07:16Z::Update repo to server at: https://fmda-ca.lab:3000/rfc8181/fmda/::1::OK
+2026-06-18T16:07:17Z::Add parent 'testbed' as 'RFC 6492 Parent'::2::OK
+2026-06-18T16:07:20Z::Update entitlements under parent 'testbed': 0 => asn: '', ipv4: '192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24', ipv6: '' ::3::OK
+2026-06-18T16:07:20Z::Update received cert in RC '0', with resources 'asn: 0 blocks, v4: 3 blocks, v6: 0 blocks'::4::OK
+2026-06-18T16:07:21Z::Update ROAs  ADD: 203.0.113.0/24-24 => 65010::5::OK
+2026-06-18T16:07:22Z::Update ROAs  ADD: 192.0.2.0/24-24 => 65001::6::OK
+2026-06-18T16:07:22Z::Update ROAs  ADD: 198.51.100.0/24-24 => 65020::7::OK
 

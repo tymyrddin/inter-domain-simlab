@@ -33,25 +33,42 @@ def _docker(node, *cmd):
     return r.stdout
 
 
-def read_target(scenario):
-    """Minimal scenario.yaml reader (stdlib only): pull the `target:` block, the
-    structured flag oracle (hijack_prefix/origin, legitimate_prefix/origin)."""
+def read_block(scenario, name):
+    """Minimal scenario.yaml reader (stdlib only): pull one flat top-level block
+    (`name:` ... until the next unindented key) into a dict, inline # comments
+    stripped. Used for target:, position: and posture: (see session.py)."""
     path = os.path.join("scenarios", scenario, "scenario.yaml")
-    target, in_target = {}, False
+    block, inside = {}, False
     with open(path) as f:
         for line in f:
-            if line.startswith("target:"):
-                in_target = True
+            if line.startswith(name + ":"):
+                inside = True
                 continue
-            if in_target:
+            if inside:
                 if line.strip() and not line[0].isspace():
                     break
                 s = line.strip()
                 if not s or s.startswith("#"):
                     continue
                 k, _, v = s.partition(":")
-                target[k.strip()] = v.split("#")[0].strip()
-    return target
+                block[k.strip()] = v.split("#")[0].strip()
+    return block
+
+
+def read_scalar(scenario, key):
+    """Read a top-level scalar field (e.g. rootme_flag:) from a scenario.yaml."""
+    path = os.path.join("scenarios", scenario, "scenario.yaml")
+    with open(path) as f:
+        for line in f:
+            if line.startswith(key + ":"):
+                return line.partition(":")[2].split("#")[0].strip().strip('"').strip("'")
+    return None
+
+
+def read_target(scenario):
+    """The `target:` block: the structured flag oracle (hijack_prefix/origin,
+    legitimate_prefix/origin)."""
+    return read_block(scenario, "target")
 
 
 def vrps():
@@ -78,10 +95,12 @@ def rpki_state(prefix, origin, vrp_list):
     return "invalid"
 
 
-def snapshot():
-    """observer best-path table as prefix -> (origin_as, as_path[])."""
+def snapshot(node=OBSERVER):
+    """best-path table of `node` (a container name) as prefix -> (origin_as,
+    as_path[]). Defaults to the observer; scenarios whose effect is regional
+    (route-leak, policy-trust-abuse) score at a specific transit instead."""
     try:
-        routes = json.loads(_docker(OBSERVER, "vtysh", "-c", "show ip bgp json")).get("routes", {})
+        routes = json.loads(_docker(node, "vtysh", "-c", "show ip bgp json")).get("routes", {})
     except Exception:
         return {}
     snap = {}

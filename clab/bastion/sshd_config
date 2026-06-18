@@ -1,0 +1,19 @@
+# inter-domain-simlab bastion sshd config.
+# Key-only player entry, locked to the menu. No passwords, no root, no shell:
+# ForceCommand runs the menu for every session (the menu itself permits a bundle
+# scp from /bundles by inspecting SSH_ORIGINAL_COMMAND). authorized_keys is
+# bind-mounted per deploy (StrictModes off so a root-owned read-only mount works).
+PermitRootLogin no
+PasswordAuthentication no
+PermitEmptyPasswords no
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
+UsePAM no
+StrictModes no
+PrintMotd no
+AllowTcpForwarding no
+X11Forwarding no
+PermitTunnel no
+ForceCommand /usr/local/bin/menu

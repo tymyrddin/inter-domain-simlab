@@ -13,16 +13,10 @@ break into anything else. The routing table is the vulnerability.
 
 ## Getting in
 
-You are handed one box, the attacker ops host. Playing locally:
-
-    ./ctl player          # drops you on the ops host as the player
-
-From there, two commands are all you need:
-
-    foothold              # SSH into the compromised router, lands you in vtysh
-    lg                    # query the public looking glass for the global table
-
-No god-mode: you reach the foothold and the looking glass, nothing else.
+Playing locally, `./ctl player` drops you at the bastion. Pick this operation from
+the menu and you land in the foothold router's vtysh, already in position. `lg`
+queries the public looking glass for the global table. No god-mode: you reach what
+you own and the looking glass, nothing else.
 
 ## Win condition
 
@@ -31,6 +25,7 @@ when it lists 203.0.113.0/25 with your AS (65020) as the origin. The legitimate
 /24 stays put; your more-specific sits next to it and takes the traffic by
 longest-prefix match.
 
-For the data-plane bonus, redirect the hijacked range at a host you control (your
-ops host) instead of dropping it, then watch the victim's traffic arrive. The
-brief is enough to start; attack.md has the steps if you want them.
+For the data-plane bonus, point the hijacked range at a host you control instead of
+discarding it (`ip route 203.0.113.0/25 100.64.0.10` on the foothold), so the
+victim's traffic bends onto that box rather than into a black hole. The brief is
+enough to start; attack.md has the steps if you want them.

@@ -1,0 +1,50 @@
+# FMDA's IRR database (IRRd v4). One authoritative source, FMDA, holding the lab's
+# route objects; a local PostgreSQL and Redis back it. Access lists are lab-open
+# because the lab is contained (no internet). bgpq4 on the transits queries the
+# whois listener on TCP 43. See PLAN.md section 19.
+irrd:
+  piddir: /var/run/irrd
+  user: irrd
+  group: irrd
+
+  database_url: 'postgresql://irrd:irrd@localhost:5432/irrd'
+  redis_url: 'redis://localhost:6379/0'
+
+  access_lists:
+    lab_open:
+      - '0.0.0.0/0'
+      - '::/0'
+
+  server:
+    http:
+      interface: '0.0.0.0'
+      port: 8080
+      url: 'http://fmda-irr.lab:8080/'
+      status_access_list: lab_open
+    whois:
+      interface: '0.0.0.0'
+      port: 43
+      access_list: lab_open
+
+  # PGP keyring is required by IRRd even when unused; the lab maintainer auth is a
+  # password (MD5-PW), set in the seed by start.sh.
+  auth:
+    gnupg_keyring: /var/lib/irrd/gnupg
+
+  email:
+    from: irrd@fmda-irr.lab
+    smtp: localhost
+    recipient_override: irrd@fmda-irr.lab
+
+  # No RPKI-aware filtering inside IRRd: RPKI is the routers' job (Routinator/ROV),
+  # this zone is the registry's route objects only.
+  rpki:
+    roa_source: null
+
+  sources_default:
+    - FMDA
+
+  sources:
+    FMDA:
+      authoritative: true
+      keep_journal: true

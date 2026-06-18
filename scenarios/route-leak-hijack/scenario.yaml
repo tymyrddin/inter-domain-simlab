@@ -1,0 +1,55 @@
+# Scenario: route leak escalating into an effective hijack.
+# op-red-lantern technique: route-leak-hijack (runbooks technique 2). A multi-homed
+# ISP re-announces a route between its providers; the receiving provider prefers the
+# customer path on local-pref, and the leaked route behaves like a hijack though no
+# origin was forged. Needs the customer-leaky AS and local-preference (./ctl localpref).
+name: route-leak-hijack
+title: Mudslide                      # working title; pending the op-red-lantern runbook
+technique: route-leak
+overlay: null
+
+roles:
+  attacker: customer-leaky           # AS65030 Mudflat, the multi-homed ISP the player controls
+  victim: victim-as                  # AS65010 FDEI, owns 203.0.113.0/24
+  transit_preferred: transit-b       # prefers the leaked customer path over its peer
+  collector: observer
+
+target:
+  legitimate_prefix: 203.0.113.0/24
+  legitimate_origin: 65010
+  hijack_prefix: 203.0.113.0/24      # same prefix and origin: the leak changes the PATH, not the origin
+  hijack_origin: 65010
+
+# The win is regional and path-based: at transit-b the victim's /24 is best reached
+# THROUGH AS65030 (the leaker), not directly via the peer. score_node + leak_via tell
+# the scorer to judge there and to look for the leaker in the path, not a new origin.
+score_node: transit-b
+leak_via: 65030
+
+position:
+  start_box: customer-leaky          # land in Mudflat's vtysh (the compromised ISP)
+  loot: none                         # you are already on the box; the leak is a config slip
+  pivot: none
+
+posture:
+  rov: off
+  irr: off
+  localpref: on                      # customer over peer; this is what makes the leak win
+  roa: baseline
+
+rootme_flag: "IDSL{mudslide-customer-over-peer}"
+
+expected_effect: >
+  Mudflat (AS65030) is a customer of both transits. By default it announces only its
+  own 198.18.0.0/24. The player widens its export so it re-announces 203.0.113.0/24
+  (learned from transit-a) to transit-b. transit-b now has two paths to the victim:
+  via its peer transit-a, and via its customer Mudflat. Customer-over-peer local-pref
+  makes it prefer the longer customer path, so the victim's traffic through transit-b
+  is dragged through Mudflat. No origin was forged; the leak alone did it.
+
+flag_condition:
+  mode: propagation
+  check: >
+    `show ip bgp 203.0.113.0/24 json` on transit-b shows the best path traversing
+    AS65030 (Mudflat), while the origin is still AS65010. The leak, not a forged
+    origin, redirected the route.

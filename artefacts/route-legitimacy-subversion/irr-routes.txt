@@ -1,0 +1,10 @@
+# AS65010
+no ip prefix-list PL-IRR-65010
+ip prefix-list PL-IRR-65010 permit 203.0.113.0/24
+# AS65020
+no ip prefix-list PL-IRR-65020
+ip prefix-list PL-IRR-65020 permit 198.51.100.0/24
+ip prefix-list PL-IRR-65020 permit 203.0.113.0/25
+# AS65001
+no ip prefix-list PL-IRR-65001
+ip prefix-list PL-IRR-65001 permit 192.0.2.0/24

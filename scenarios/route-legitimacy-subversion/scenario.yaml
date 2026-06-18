@@ -1,0 +1,57 @@
+# Scenario: route-legitimacy-subversion (op-red-lantern runbook technique 8).
+# The attacker launders a clean-looking IRR route object for the hijack prefix, so
+# IRR prefix filtering (the defence) then permits it. Deployable on M1-M4 plus the
+# registry (M3 RPKI and IRR phase two); no new nodes, no overlay.
+name: route-legitimacy-subversion
+title: Good Standing                 # working title, pending the op-red-lantern runbook
+technique: route-legitimacy-subversion
+overlay: null
+
+roles:
+  attacker: attacker-as              # AS65020, Bracket Hosting; the announcement and the IRR submission
+  victim: victim-as                  # FDEI, AS65010, owns 203.0.113.0/24
+  registry: registry-irr             # FMDA's IRR database; the route object is laundered here
+  transit_filtered: transit-b        # builds bgpq4 IRR prefix-filters, the defence to beat
+  collector: observer
+
+target:
+  legitimate_prefix: 203.0.113.0/24
+  legitimate_origin: 65010
+  hijack_prefix: 203.0.113.0/25
+  hijack_origin: 65020
+
+# Multi-stage: IRR filtering is on (./ctl irr on), so the /25 has no route object and
+# the bgpq4 prefix-list drops it. Arm by registering a clean-looking object; the
+# rebuilt filter then permits the hijack. The arming shows in the IRR-change records,
+# the hijack in the scorer timeline. The two correlated files are the fixture.
+stages:
+  - arm: on the registry workstation, the player submits a clean-looking route object (route 203.0.113.0/25 origin AS65020) to FMDA's IRR over the HTTP submit API (:8080) with the planted MAINT-FMDA password (bin/launder)
+  - hijack: the operator's filter rebuild picks up the object and permits the /25; pivot to the foothold and announce it as AS65020 and it propagates
+
+# Player entry (bastion -> Phase-1 box). Two positions: the registry workstation to
+# launder the object (the legitimacy groundwork), then a pivot to the foothold for the
+# announce. The MAINT-FMDA password is planted loot standing in for the abstracted
+# maintainer-credential compromise (PLAN.md sections 13, 20).
+position:
+  start_box: ops-host               # the registry-attacker workstation, reaches IRRd :8080 over regpub
+  loot: maint-fmda                  # planted by the session manager; the player submits with it
+  pivot: attacker-as                # after arming, foothold to announce
+
+posture:
+  rov: off
+  irr: on                           # IRR prefix filtering is the defence to beat
+  roa: baseline
+
+rootme_flag: "IDSL{good-standing-laundered-object}"
+
+flag_condition:
+  mode: propagation
+  irr_state: registered              # no route object until laundered, then a clean-looking one
+  check: >
+    With IRR filtering on, 203.0.113.0/25 origin 65020 reaches the observer only after the
+    player submits a matching route object to FMDA's IRR (bin/launder on the workstation);
+    before that the bgpq4-built prefix-list drops it.
+  telemetry_bundle: >
+    The heimdallr fixture is the raw bundle: events.jsonl (the /25 surfacing as a BMP
+    announce after the arming) and the IRR-change records (the laundered route object and
+    its journal entry). heimdallr correlates the IRR registration with the hijack.

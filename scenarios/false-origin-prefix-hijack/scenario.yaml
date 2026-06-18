@@ -24,6 +24,24 @@ expected_effect: >
   203.0.113.0-127 because it is more specific, so eyeball traffic to the web
   service (203.0.113.10) bends toward attacker-as.
 
+# Player entry (bastion -> Phase-1 box). The session manager applies the posture,
+# plants the loot, and routes the player onto start_box; the attack is the player's
+# own from that position, never a ctl knob. Runbook Phase 1: control of a customer
+# AS's announcements.
+position:
+  start_box: attacker-as            # land in the foothold's vtysh, announce by hand
+  loot: none                        # the player already controls the AS
+  pivot: none
+
+posture:                            # world state the session manager sets for this scenario
+  rov: off
+  irr: off
+  roa: baseline
+
+# Shown by the bastion completion menu (for root-me-style hosting); distinct from the
+# scorer's propagation flag, which is the completion signal.
+rootme_flag: "IDSL{toadstool-more-specific-wins}"
+
 flag_condition:
   # Milestone-1 scoring is propagation-based: the collector confirms the bogus
   # announcement reached the table with the attacker's origin.

@@ -60,8 +60,9 @@ Measured on a 31 GiB host, two points so far, both converging in under a minute:
 
 So an FRR node costs roughly 40 MiB of base plus about 1.7 KiB per route, and the
 GoBGP seed a few times that. At 100k nothing is breathing hard: the heaviest node
-is under 1 percent of RAM, and all ten nodes together stay under 2 GiB. There is
-no ceiling in sight at 100k.
+is under 1 percent of RAM, and all the table-holding nodes together stay well under
+2 GiB (this measurement predates the customer-leaky AS, which adds one more FRR
+table-holder of the same size). There is no ceiling in sight at 100k.
 
 Extrapolating to a full default-free table (~950k routes) lands each FRR node near
 1.5 to 1.7 GiB and the seed nearer 4 GiB, so roughly 12 to 16 GiB across the lab.

@@ -1,0 +1,3 @@
+serial_global|operation|object_class|rpsl_pk|timestamp
+1000000|add_or_update|route|203.0.113.0/25AS65020|2026-06-18 16:22:40.97919+00
+(1 row)

@@ -24,15 +24,32 @@ target:
 # cover, then hijack. The arming shows in the RPKI/ROA telemetry; the hijack in the
 # scorer timeline. The two correlated files are the fixture.
 stages:
-  - arm: withdraw FDEI's ROA (./ctl roa poison) so 203.0.113.0/24 goes signed -> not-found
-  - hijack: announce 203.0.113.0/25 as AS65020; now not-found, so ROV permits it
+  - arm: on the registry workstation, the player withdraws FDEI's ROA via Krill's API with the planted token (bin/poison), so 203.0.113.0/24 goes signed -> not-found
+  - hijack: pivot to the foothold and announce 203.0.113.0/25 as AS65020; now not-found, so ROV permits it
+
+# Player entry (bastion -> Phase-1 box). Two positions: the registry workstation to
+# tamper with Krill (the trust half), then a pivot to the foothold for the announce.
+# Granted compromised-CA position: a planted Krill token stands in for the abstracted
+# credential compromise (PLAN.md sections 13, 20).
+position:
+  start_box: ops-host               # the registry-attacker workstation, reaches Krill's API over regpub
+  loot: krill-token                 # planted by the session manager; the player uses it themselves
+  pivot: attacker-as                # after arming, foothold to announce
+
+posture:
+  rov: on
+  irr: off
+  roa: baseline                     # FDEI signed at start; the player withdraws it
+
+rootme_flag: "IDSL{pulling-the-roots-cover-restored}"
 
 flag_condition:
   mode: propagation
   rpki_state: notfound               # manufactured: the /25 is invalid under the ROA, not-found after poisoning
   check: >
-    With ROV on, 203.0.113.0/25 origin 65020 reaches the observer only after FDEI's
-    ROA is withdrawn (./ctl roa poison); before that, ROV drops it as invalid.
+    With ROV on, 203.0.113.0/25 origin 65020 reaches the observer only after the player
+    withdraws FDEI's ROA from Krill (bin/poison on the workstation); before that, ROV
+    drops it as invalid.
   telemetry_bundle: >
     The heimdallr fixture is the raw bundle: events.jsonl (the /25 surfacing as a BMP
     announce after the arming), the validator log and VRP set, and the ROA-change

@@ -19,14 +19,10 @@ coverage is the opening.
 
 ## Getting in
 
-Playing locally:
-
-    ./ctl player          # drops you on the ops host as the player
-
-    foothold              # SSH into the compromised router, lands you in vtysh
-    lg                    # query the public looking glass for the global table
-
-No god-mode: you reach the foothold and the looking glass, nothing else.
+Playing locally, `./ctl player` drops you at the bastion. Pick this operation from
+the menu and you land in the foothold router's vtysh, already in position. `lg`
+queries the public looking glass for the global table. No god-mode: you reach what
+you own and the looking glass, nothing else.
 
 ## Win condition
 

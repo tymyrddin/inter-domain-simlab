@@ -21,7 +21,8 @@ cohort-key.pub
 access/
 
 # Bulky raw seed data pulled at setup time. Commit known-good run artefacts
-# (a trimmed MRT plus the JSON timeline) deliberately instead of whole dumps.
+# (a trimmed MRT plus the raw telemetry bundles in artefacts/) deliberately instead
+# of whole dumps.
 seeds/mrt/*.bz2
 seeds/mrt/*.gz
 seeds/mrt/*.mrt
@@ -29,11 +30,17 @@ seeds/mrt/*.mrt
 # binds, so a fresh clone deploys offline). Raw dumps above stay ignored.
 !seeds/mrt/seed.sample.mrt
 
-# RPKI telemetry dumps from ./ctl rpki-export (working output). Commit a known-good
-# export per scenario to a deliberate location instead of this default dir.
+# RPKI and IRR telemetry dumps from ./ctl rpki-export / ./ctl irr-export (working
+# output). Commit a known-good export per scenario to a deliberate location instead
+# of these default dirs.
 rpki-export/
+irr-export/
 
 # The scorer's timeline (./ctl score) is the lab's own scoring record, regenerable
 # live and not part of the heimdallr export. The committed bundles in artefacts/
 # are raw telemetry only; the scorer's derived timeline never goes there.
 scoring/
+
+# Local design and planning docs, kept out of the repo on purpose.
+PLAN.md
+PLAN2.md

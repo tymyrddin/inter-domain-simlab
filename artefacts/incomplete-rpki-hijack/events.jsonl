@@ -1,4 +1,4 @@
-{"ts": "2026-06-15T22:18:22.681969Z", "type": "announce", "prefix": "1.7.19.0/24", "origin_as": 65020, "as_path": [65000, 65002, 65020], "peer_as": 65002, "policy": "post"}
-{"ts": "2026-06-15T22:18:22.681969Z", "type": "withdraw", "prefix": "1.7.19.0/24", "origin_as": null, "as_path": [], "peer_as": 65002, "policy": "pre"}
-{"ts": "2026-06-15T22:18:22.681969Z", "type": "announce", "prefix": "1.7.19.0/24", "origin_as": 65020, "as_path": [65000, 65001, 65002, 65020], "peer_as": 65001, "policy": "post"}
-{"ts": "2026-06-15T22:18:22.681969Z", "type": "withdraw", "prefix": "1.7.19.0/24", "origin_as": null, "as_path": [], "peer_as": 65001, "policy": "pre"}
+{"ts": "2026-06-18T16:21:16.699198Z", "type": "announce", "prefix": "1.7.19.0/24", "origin_as": 65020, "as_path": [65000, 65002, 65020], "peer_as": 65002, "policy": "post"}
+{"ts": "2026-06-18T16:21:16.699198Z", "type": "withdraw", "prefix": "1.7.19.0/24", "origin_as": null, "as_path": [], "peer_as": 65002, "policy": "pre"}
+{"ts": "2026-06-18T16:21:17.699198Z", "type": "announce", "prefix": "1.7.19.0/24", "origin_as": 65020, "as_path": [65000, 65001, 65002, 65020], "peer_as": 65001, "policy": "post"}
+{"ts": "2026-06-18T16:21:17.699198Z", "type": "withdraw", "prefix": "1.7.19.0/24", "origin_as": null, "as_path": [], "peer_as": 65001, "policy": "pre"}

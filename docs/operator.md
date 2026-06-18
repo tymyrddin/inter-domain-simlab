@@ -13,21 +13,26 @@ surface is in `docs/playing.md`.
 ./ctl lg            the same, as JSON for tooling
 ./ctl ssh NODE      a shell on a node (e.g. ./ctl ssh attacker-as)
 ./ctl vtysh NODE    vtysh on a router (e.g. ./ctl vtysh attacker-as)
-./ctl player        play locally: enter the ops host on a cohort key (auto-made)
+./ctl session       the session manager: positions the world per scenario the player
+                    picks, arms the scorer, assembles the bundle (run alongside the lab)
+./ctl player        play locally: enter the bastion on a cohort key (auto-made)
 ./ctl playtest      operator check of the player path, using the lab key
 ./ctl cohort-keys   make a participant keypair to hand out
 ./ctl seed-fetch [N]  refresh the backbone seed from a live RouteViews dump
 ./ctl rpki          the trust fabric: Routinator VRPs + FMDA ROAs
-./ctl rov on|off    origin validation at the transits (off by default)
-./ctl roa poison|restore   withdraw/restore FDEI's ROA (the ROA-poisoning demo)
+./ctl rov on|off    origin validation at the transits (defence posture)
+./ctl irr on|off|rebuild   IRR prefix filtering at the transits (defence posture)
+./ctl localpref on|off     customer-over-peer local-pref at the transits (route-leak,
+                           policy-trust-abuse; never on at once with rov)
 ./ctl rpki-export [dir]    dump VRPs + ROAs + Routinator log for heimdallr
+./ctl irr-export  [dir]    dump IRR route objects + journal for heimdallr
 ./ctl score [scenario] [poll|bmp]  score the flag, write the timeline (M4); poll
                                    diffs the table, bmp reads the bmp-collector feed
 ```
 
-Nodes: transit-a, transit-b, victim-as, attacker-as, observer, lookingglass,
-seed, registry-ca, registry-rtr, bmp-collector, ops-host, web, eyeball. Containers are named
-`clab-inter-domain-<node>`.
+Nodes: transit-a, transit-b, victim-as, attacker-as, customer-leaky, observer,
+lookingglass, seed, registry-ca, registry-rtr, registry-irr, bmp-collector, bastion, ops-host, web,
+eyeball. Containers are named `clab-inter-domain-<node>`.
 
 ## Deploy and reset
 
@@ -86,17 +91,20 @@ serves the result to the transits over RTR. `./ctl up` onboards it and signs the
 baseline ROAs (FDEI's /24 from AS65010, and the two other lab prefixes).
 `./ctl rpki` shows the VRPs and the ROAs.
 
-Origin validation is off by default, so the core stays permissive. The defence
-demo against the false-origin hijack:
+Origin validation is off by default, so the core stays permissive. As a defence
+posture an operator can turn it on:
 
 ```bash
 ./ctl rov on                 # the transits drop RPKI-invalid routes
 # the attacker's 203.0.113.0/25 is invalid (covered by FDEI's /24 ROA): dropped
-./ctl roa poison             # withdraw FDEI's ROA; the /25 goes not-found
-# ROV lets not-found through, so the hijack works again under cover
-./ctl roa restore            # the defence holds again
 ./ctl rov off                # back to the permissive baseline
 ```
+
+The attacker's counter, withdrawing FDEI's ROA so the /25 goes not-found, is the
+`roa-poisoning-hijack` scenario, performed by the player from a compromised CA
+position (a planted token, a real call to Krill's API), not an operator knob. When
+a player picks it at the bastion, `./ctl session` sets ROV on, plants the token,
+and restores the ROA on reset.
 
 A ROA change takes a few seconds to propagate (Routinator re-validates, the
 transits re-pull), then re-check with `./ctl table | grep 203.0.113`. Validation
@@ -119,17 +127,17 @@ Players enter on a key, never a password. Make one and hand out the private half
 ./ctl cohort-keys
 ```
 
-Local participants reach the ops host directly on the access bridge:
+Local participants reach the bastion directly on the access bridge:
 
 ```bash
-ssh -i cohort-key player@100.64.0.10
+ssh -i cohort-key player@100.64.0.5
 ```
 
 On a public host the access LAN is internal and no port is published, so players
 jump through a restricted account the operator provisions on the lab host:
 
 ```bash
-ssh -i cohort-key -J jump@<lab-host> player@100.64.0.10
+ssh -i cohort-key -J jump@<lab-host> player@100.64.0.5
 ```
 
 Provisioning that jump account is host setup, outside `ctl`.

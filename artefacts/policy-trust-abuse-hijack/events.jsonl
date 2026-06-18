@@ -1,0 +1,12 @@
+{"ts": "2026-06-18T16:21:56.699198Z", "type": "announce", "prefix": "198.18.0.0/24", "origin_as": 65030, "as_path": [65000, 65001, 65030], "peer_as": 65001, "policy": "post"}
+{"ts": "2026-06-18T16:21:56.699198Z", "type": "withdraw", "prefix": "198.18.0.0/24", "origin_as": null, "as_path": [], "peer_as": 65001, "policy": "pre"}
+{"ts": "2026-06-18T16:21:56.699198Z", "type": "announce", "prefix": "203.0.112.0/22", "origin_as": 65010, "as_path": [65000, 65001, 65010], "peer_as": 65001, "policy": "post"}
+{"ts": "2026-06-18T16:21:56.699198Z", "type": "withdraw", "prefix": "203.0.112.0/22", "origin_as": null, "as_path": [], "peer_as": 65001, "policy": "pre"}
+{"ts": "2026-06-18T16:21:56.699198Z", "type": "announce", "prefix": "203.0.113.0/24", "origin_as": 65010, "as_path": [65000, 65001, 65010], "peer_as": 65001, "policy": "post"}
+{"ts": "2026-06-18T16:21:56.699198Z", "type": "withdraw", "prefix": "203.0.113.0/24", "origin_as": null, "as_path": [], "peer_as": 65001, "policy": "pre"}
+{"ts": "2026-06-18T16:21:56.699198Z", "type": "announce", "prefix": "198.18.0.0/24", "origin_as": 65030, "as_path": [65000, 65002, 65030], "peer_as": 65002, "policy": "post"}
+{"ts": "2026-06-18T16:21:56.699198Z", "type": "withdraw", "prefix": "198.18.0.0/24", "origin_as": null, "as_path": [], "peer_as": 65002, "policy": "pre"}
+{"ts": "2026-06-18T16:21:56.699198Z", "type": "announce", "prefix": "198.51.100.0/24", "origin_as": 65020, "as_path": [65000, 65002, 65020], "peer_as": 65002, "policy": "post"}
+{"ts": "2026-06-18T16:21:56.699198Z", "type": "withdraw", "prefix": "198.51.100.0/24", "origin_as": null, "as_path": [], "peer_as": 65002, "policy": "pre"}
+{"ts": "2026-06-18T16:21:57.699198Z", "type": "announce", "prefix": "203.0.113.0/24", "origin_as": 65020, "as_path": [65000, 65002, 65020], "peer_as": 65002, "policy": "post"}
+{"ts": "2026-06-18T16:21:57.699198Z", "type": "withdraw", "prefix": "203.0.113.0/24", "origin_as": null, "as_path": [], "peer_as": 65002, "policy": "pre"}

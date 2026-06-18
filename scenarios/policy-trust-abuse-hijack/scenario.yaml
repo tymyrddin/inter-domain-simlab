@@ -1,0 +1,54 @@
+# Scenario: policy-trust abuse, preferred-path hijack.
+# op-red-lantern technique: policy-trust-abuse (runbooks). The attacker forges no
+# origin and announces no more-specific; it wins on ROUTE-SELECTION POLICY. From its
+# customer relationship with transit-b it announces a same-length copy of the victim's
+# /24, and customer-over-peer local-pref makes transit-b prefer it. Regional by nature.
+# Needs local-preference (./ctl localpref); no new topology.
+name: policy-trust-abuse-hijack
+title: House Rules                   # working title; pending the op-red-lantern runbook
+technique: policy-trust-abuse
+overlay: null
+
+roles:
+  attacker: attacker-as              # AS65020, a customer of transit-b
+  victim: victim-as                  # AS65010 FDEI, owns 203.0.113.0/24
+  transit_preferred: transit-b       # prefers the customer's copy over the peer route
+  collector: observer
+
+target:
+  legitimate_prefix: 203.0.113.0/24
+  legitimate_origin: 65010
+  hijack_prefix: 203.0.113.0/24      # SAME prefix, SAME length: the win is on policy, not specificity
+  hijack_origin: 65020
+
+# Regional: at transit-b the attacker's copy wins on local-pref; at transit-a the
+# victim (its own customer) still wins. The scorer judges at transit-b.
+score_node: transit-b
+
+position:
+  start_box: attacker-as
+  loot: none
+  pivot: none
+
+posture:
+  rov: off
+  irr: off
+  localpref: on                      # customer over peer; this is the whole lever
+  roa: baseline
+
+rootme_flag: "IDSL{house-rules-customer-preferred}"
+
+expected_effect: >
+  The attacker announces 203.0.113.0/24, the same prefix and length the victim
+  originates, from its customer relationship with transit-b. transit-b sees two paths:
+  the victim's via its peer transit-a, and the attacker's from its own customer.
+  Customer-over-peer local-pref outranks AS_PATH length entirely, so transit-b prefers
+  the attacker. Nothing is more specific and no origin is forged; the network's own
+  policy chose the attacker.
+
+flag_condition:
+  mode: propagation
+  check: >
+    `show ip bgp 203.0.113.0/24 json` on transit-b shows a best path with origin AS
+    65020, preferred over the equally-specific victim route on local-preference. At
+    transit-a the victim still wins, so the effect is regional.
