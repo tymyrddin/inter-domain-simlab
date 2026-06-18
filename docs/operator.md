@@ -7,8 +7,8 @@ surface is in `docs/playing.md`.
 ## ctl reference
 
 ```
-./ctl up            build images, create the access bridge, deploy (sudo)
-./ctl down          destroy the topology, remove the access bridge (sudo)
+./ctl up            build images, create the bridges, deploy (sudo)
+./ctl down          destroy the topology, remove the bridges (sudo)
 ./ctl table         the global table as the observer sees it (show ip bgp)
 ./ctl lg            the same, as JSON for tooling
 ./ctl ssh NODE      a shell on a node (e.g. ./ctl ssh attacker-as)
@@ -26,7 +26,7 @@ surface is in `docs/playing.md`.
                            policy-trust-abuse; never on at once with rov)
 ./ctl rpki-export [dir]    dump VRPs + ROAs + Routinator log for heimdallr
 ./ctl irr-export  [dir]    dump IRR route objects + journal for heimdallr
-./ctl score [scenario] [poll|bmp]  score the flag, write the timeline (M4); poll
+./ctl score [scenario] [poll|bmp]  score the flag, write the timeline; poll
                                    diffs the table, bmp reads the bmp-collector feed
 ```
 
@@ -37,28 +37,24 @@ eyeball. Containers are named `clab-inter-domain-<node>`.
 ## Deploy and reset
 
 `./ctl up` builds the images (the FRR router, the ops host, the GoBGP seed, and
-the Krill CA and Routinator validator), brings up the `idsl_access` and
-`idsl_services` bridges, deploys, and onboards the RPKI trust anchor. A bounce is
+the Krill CA and Routinator validator), brings up the `idsl_access`, `idsl_services`
+and `idsl_regpub` bridges, deploys, and onboards the RPKI trust anchor. A bounce is
 self-contained: `./ctl down` then `./ctl up` rebuilds the images (so config
 changes are picked up), recreates the bridges and redeploys. Keys persist across a
 bounce, so a distributed cohort key stays valid. To rotate credentials, remove
 `lab-key* cohort-key* access/` before `up`.
 
-## The backbone seed (a plausibly large table)
+## The backbone seed
 
-The `seed` node (AS65003) replays a real, filtered route dump so the global table
-carries tens of thousands of routes, not just the lab's own handful. The default
-`./ctl up` uses the committed sample (~10k prefixes) and needs no network. The
-size is a dial:
+The `seed` node replays a real filtered route dump so the table is backbone-sized.
+`SEED_COUNT` is the size dial; the committed ~10k sample is the offline default, and a
+larger table needs a fresh fetch:
 
 ```bash
-SEED_COUNT=50000 ./ctl up          # inject more (needs a larger dump first)
-./ctl seed-fetch 50000             # download + filter a 50k dump, then redeploy
+./ctl seed-fetch 50000 && SEED_COUNT=50000 ./ctl up
 ```
 
-A larger table needs a fresh fetch (the committed sample only holds ~10k). Detail,
-including what is real and what is abstracted, is in `seeds/mrt/README.md` and
-the design notes.
+See `seeds/mrt/README.md`.
 
 ## Observing
 
@@ -78,10 +74,8 @@ docker exec clab-inter-domain-transit-a vtysh -c 'show ip bgp 203.0.113.10'  # t
 docker exec -it clab-inter-domain-eyeball traceroute -n 203.0.113.10   # traffic bends to the attacker
 ```
 
-With the seed in place the table is large, so `./ctl table` is best filtered
-(`grep 203.0.113`) rather than read whole. The hijack wins for the same reason it
-did against the empty table: longest-prefix match is indifferent to how much else
-is in the RIB.
+With the seed in place the table is large, so filter `./ctl table` (`grep 203.0.113`)
+rather than reading it whole.
 
 ## The trust fabric (RPKI)
 
@@ -106,12 +100,9 @@ position (a planted token, a real call to Krill's API), not an operator knob. Wh
 a player picks it at the bastion, the lab sets ROV on, plants the token, and
 restores the ROA on reset.
 
-A ROA change takes a few seconds to propagate (Routinator re-validates, the
-transits re-pull), then re-check with `./ctl table | grep 203.0.113`. Validation
-runs over rsync, not RRDP: Krill's self-signed HTTPS is not usable for
-trust-anchor retrieval, so `registry-ca` serves the repository over rsync (detail
-in the design notes). `./ctl rpki-export` dumps the VRP set, the ROA history and
-Routinator's log for the detection lab (heimdallr).
+A ROA change takes a few seconds to propagate (Routinator re-validates, the transits
+re-pull), then re-check with `./ctl table | grep 203.0.113`. `./ctl rpki-export` dumps
+the VRP set, the ROA history and Routinator's log for the detection lab (heimdallr).
 
 One caution that applies to every node: never `docker restart` a node or restart
 its in-container FRR (`frrinit.sh restart`). Containerlab creates the data-plane
@@ -144,7 +135,5 @@ Provisioning that jump account is host setup, outside `ctl`.
 
 ## Containment
 
-Private ASNs and TEST-NET prefixes, no internet egress, and nothing bound to a
-public interface. The lab is deliberately vulnerable inside and never reachable
-from outside, and that isolation is the control that keeps the weak in-lab
-credentials safe. See the design notes.
+Private ASNs and TEST-NET prefixes, no internet egress, and nothing bound to a public
+interface. The lab is vulnerable inside and unreachable from outside.

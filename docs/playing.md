@@ -85,10 +85,9 @@ the looking glass from any box that has it.
 lg | grep 203.0.113   # your prefix next to the victim's, in a table of real routes
 ```
 
-The looking glass is a single-transit, read-only public-collector stand-in, so
-confirming a hijack reached the wider table is a real lookup, not a peek at the
-operator's omniscient view. The backbone carries a seeded table of real routes, so
-filter for your prefix rather than reading the whole thing.
+The looking glass is a single-transit, read-only vantage: the partial view the
+outside world has, not the operator's full table. The backbone carries a seeded table
+of real routes, so filter for your prefix rather than reading it whole.
 
 When your announcement reaches the collector the lab flag fires on its own. Leave
 the box (exit vtysh, or log out of the workstation) and the bastion shows your
@@ -105,15 +104,8 @@ no undo move in your own hands: an attacker does not un-launder an object or
 un-poison a ROA, that would re-block their own hijack. Reset is the operator's, or
 a full `./ctl down && ./ctl up`.
 
-## What this teaches, and what it does not
+## A caveat
 
-The control plane is real: the hijack works for the exact reason it works on the
-internet, and you confirm it the way you would against RouteViews or RIS. The
-defences are real too, and you beat them the way the runbooks describe: RPKI origin
-validation drops an invalid more-specific until you take the cover away from the
-registry side, and an IRR prefix filter drops an unregistered prefix until you
-register a clean-looking object for it. What the lab hands you rather than making
-you earn is the announcing position itself: initial access, scale and the months a
-long campaign really takes are abstracted. You never read
-the operator's full table or the victim's machine; you confirm from the looking
-glass and from the flag, which is how it works for real.
+The attack mechanics are real, but the lab hands you the announcing position instead
+of making you earn it, and it compresses scale and time. Winning here is not the same
+as winning unnoticed against a hardened, monitored network.
